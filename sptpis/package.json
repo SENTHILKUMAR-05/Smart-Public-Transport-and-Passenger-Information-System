@@ -1,0 +1,16 @@
+{
+  "name": "sptpis-root",
+  "version": "1.0.0",
+  "description": "Smart Public Transport and Passenger Information System (TNSTC/SETC Focus)",
+  "private": true,
+  "scripts": {
+    "start": "bash ./start_system.sh",
+    "dev": "bash ./start_system.sh",
+    "ai-service": "/home/user/.venv/bin/python3 ai_service/app.py",
+    "backend": "node backend/server.js",
+    "frontend": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend"
+  },
+  "author": "Smart City AIML Transport Research Team",
+  "license": "MIT"
+}
