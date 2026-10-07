@@ -11,6 +11,7 @@ export const SocketProvider = ({ children }) => {
   const [lastPassengerStatus, setLastPassengerStatus] = useState(null);
   const [lastEmergency, setLastEmergency] = useState(null);
   const [simSpeed, setSimSpeed] = useState(1);
+  const [lastSystemAlert, setLastSystemAlert] = useState(null);
 
   useEffect(() => {
     const socketInstance = io('', {
@@ -77,12 +78,25 @@ export const SocketProvider = ({ children }) => {
       setSimSpeed(data.speed || 1);
     });
 
+    socketInstance.on('global_sync_broadcast', (data) => {
+      setLastSystemAlert(data);
+      setTimeout(() => setLastSystemAlert(null), 8000);
+    });
+
     setSocket(socketInstance);
 
     return () => {
       socketInstance.disconnect();
     };
   }, []);
+
+  const triggerGlobalAlert = (data) => {
+    setLastSystemAlert(data);
+    setTimeout(() => setLastSystemAlert(null), 8000);
+    if (socket) {
+      socket.emit('trigger_global_sync', data);
+    }
+  };
 
   return (
     <SocketContext.Provider
@@ -93,7 +107,9 @@ export const SocketProvider = ({ children }) => {
         lastOccupancyUpdate,
         lastPassengerStatus,
         lastEmergency,
-        simSpeed
+        simSpeed,
+        lastSystemAlert,
+        triggerGlobalAlert
       }}
     >
       {children}

@@ -1,10 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 
-const FleetMap = ({ buses = [] }) => {
+const FleetMap = ({ buses = [], districtName = 'Tamil Nadu' }) => {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const markersRef = useRef({});
+  const borderLayerRef = useRef(null);
+  const activePathLayerRef = useRef(null);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -25,75 +27,94 @@ const FleetMap = ({ buses = [] }) => {
     }
 
     return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
+      // We don't want to destroy the map on every re-render of district, just unmount
     };
   }, []);
 
-  // Update Fleet Markers
+  // Update District Border
   useEffect(() => {
     if (!mapRef.current) return;
+    let isCancelled = false;
 
-    buses.forEach((bus) => {
-      const lat = bus.location?.latitude || bus.latitude || 11.6643;
-      const lng = bus.location?.longitude || bus.longitude || 78.1460;
-      const isEmergency = bus.status === 'Emergency';
-      const color = isEmergency ? '#ef4444' : (bus.status === 'Delayed' ? '#f59e0b' : '#3b82f6');
+    const cleanName = districtName.replace(' District', '');
+    const aliasMap = {
+        'Kanyakumari': 'Kanniyakumari District, Tamil Nadu',
+        'Chennai': 'Chennai District, Tamil Nadu'
+    };
+    
+    const queryName = aliasMap[cleanName] || `${cleanName} District, Tamil Nadu`;
+    
+    const url = cleanName === 'Tamil Nadu' 
+        ? 'https://nominatim.openstreetmap.org/search?q=Tamil+Nadu,+India&polygon_geojson=1&format=json'
+        : `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(queryName)}&polygon_geojson=1&format=json`;
 
-      const iconHtml = `
-        <div style="position: relative; width: 42px; height: 42px; display: flex; align-items: center; justify-center;">
-          ${isEmergency ? '<div style="position: absolute; width: 100%; height: 100%; border-radius: 9999px; background-color: #ef4444; animation: pulse 1s infinite;"></div>' : ''}
-          <div style="background-color: ${color}; border: 2px solid white; border-radius: 9999px; width: 36px; height: 36px; display: flex; align-items: center; justify-center; box-shadow: 0 4px 10px rgba(0,0,0,0.6);">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6v6"/><path d="M15 6v6"/><path d="M2 12h19.6"/><path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/><circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/></svg>
-          </div>
-        </div>
-      `;
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+          if (isCancelled) return;
+          if (borderLayerRef.current) mapRef.current.removeLayer(borderLayerRef.current);
+          if (activePathLayerRef.current) mapRef.current.removeLayer(activePathLayerRef.current);
+          
+          if (data && data.length > 0 && mapRef.current) {
+              const boundaryData = data.find(d => d.geojson && (d.geojson.type === 'Polygon' || d.geojson.type === 'MultiPolygon'));
+              
+              if (boundaryData) {
+                  const geojsonLayer1 = L.geoJSON(boundaryData.geojson, {
+                      style: {
+                          color: '#0ea5e9',
+                          weight: 8,
+                          opacity: 0.4,
+                          fillColor: '#0ea5e9',
+                          fillOpacity: 0.05,
+                      }
+                  }).addTo(mapRef.current);
+                  borderLayerRef.current = geojsonLayer1;
 
-      const busIcon = L.divIcon({
-        className: 'custom-fleet-marker',
-        html: iconHtml,
-        iconSize: [42, 42],
-        iconAnchor: [21, 21],
-      });
+                  const geojsonLayer2 = L.geoJSON(boundaryData.geojson, {
+                      style: {
+                          color: '#00f6ff',
+                          weight: 3.5,
+                          opacity: 1,
+                          fillOpacity: 0,
+                          className: 'tn-ant-path'
+                      }
+                  }).addTo(mapRef.current);
+                  activePathLayerRef.current = geojsonLayer2;
 
-      const popupContent = `
-        <div style="font-family: sans-serif; min-width: 200px;">
-          <div style="font-weight: bold; color: ${color}; font-size: 14px;">
-            🚌 ${bus.registration_number || 'TNSTC Bus'} (${bus.bus_type || 'Express'})
-          </div>
-          <div style="color: #cbd5e1; font-size: 12px; margin-top: 6px;">
-            Route: <b>${bus.route_name || bus.source_city + ' - ' + bus.destination_city}</b>
-          </div>
-          <div style="color: #94a3b8; font-size: 12px; margin-top: 4px;">
-            Status: <span style="color: ${color}; font-weight: bold;">${bus.status || 'Active'}</span> | Speed: <b>${bus.speed_kmh || 58} km/h</b>
-          </div>
-          <div style="color: #94a3b8; font-size: 12px; margin-top: 2px;">
-            Next Stop: <b>${bus.next_stop_name || 'Salem Central'}</b>
-          </div>
-          <div style="color: #10b981; font-size: 12px; margin-top: 4px;">
-            Occupancy: <b>${bus.occupancy_percentage || 57}%</b> (${bus.total_occupancy_count || 31}/54 seats)
-          </div>
-        </div>
-      `;
+                  if (cleanName !== 'Tamil Nadu') {
+                      mapRef.current.fitBounds(geojsonLayer1.getBounds(), { padding: [50, 50] });
+                  } else {
+                      mapRef.current.setView([11.1271, 78.6569], 7);
+                  }
+              }
+          }
+      }).catch(err => console.error("Error fetching boundaries:", err));
 
-      if (markersRef.current[bus.bus_id]) {
-        markersRef.current[bus.bus_id].setLatLng([lat, lng]);
-        markersRef.current[bus.bus_id].setPopupContent(popupContent);
-      } else {
-        const marker = L.marker([lat, lng], { icon: busIcon })
-          .bindPopup(popupContent)
-          .addTo(mapRef.current);
-        markersRef.current[bus.bus_id] = marker;
-      }
-    });
+      return () => { isCancelled = true; };
+  }, [districtName]);
+
+  // Update Fleet Markers
+  useEffect(() => {
+    // We removed the generic bus marker circles from the global overview maps per user request
+    // This provides a much cleaner, un-cluttered boundary view
   }, [buses]);
 
   return (
-    <div className="relative w-full h-[500px] rounded-2xl overflow-hidden border border-slate-700/80 shadow-2xl">
-      <div ref={mapContainerRef} className="w-full h-full" />
-    </div>
+    <>
+        <style dangerouslySetInnerHTML={{__html: `
+            .tn-ant-path {
+                stroke-dasharray: 12, 12;
+                animation: antFlow 30s linear infinite;
+                filter: drop-shadow(0 0 6px rgba(6, 182, 212, 0.9));
+            }
+            @keyframes antFlow {
+                to { stroke-dashoffset: 1000; }
+            }
+        `}} />
+        <div className="relative w-full h-[500px] rounded-2xl overflow-hidden shadow-[0_0_20px_rgba(59,130,246,0.15)] ring-1 ring-white/10 hover:shadow-[0_0_30px_rgba(59,130,246,0.3)] transition-all duration-300">
+          <div ref={mapContainerRef} className="w-full h-full" />
+        </div>
+    </>
   );
 };
 

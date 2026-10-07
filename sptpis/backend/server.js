@@ -92,6 +92,11 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         console.log(`[Socket.IO] Client Disconnected: ${socket.id}`);
     });
+
+    socket.on('trigger_global_sync', (data) => {
+        io.emit('global_sync_broadcast', data);
+        console.log(`[Socket.IO] System alert broadcasted: ${data.title}`);
+    });
 });
 
 const PORT = process.env.PORT || 5000;

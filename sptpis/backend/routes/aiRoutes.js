@@ -2,8 +2,87 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const db = require('../config/database');
+const fs = require('fs');
+const path = require('path');
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://127.0.0.1:5001/api/ai';
+
+// Load bus schedules JSON for RAG matching
+let busSchedulesData = [];
+try {
+    const schedulesPath = path.join(__dirname, '../../frontend/src/pages/bus_schedules.json');
+    if (fs.existsSync(schedulesPath)) {
+        const raw = fs.readFileSync(schedulesPath, 'utf-8');
+        busSchedulesData = JSON.parse(raw);
+    }
+} catch (e) {
+    console.warn("[AI Routes] Could not load bus_schedules.json, using fallback dynamic generator.");
+}
+
+const CITY_ALIASES = {
+    'sathyamangalam': 'Sathy',
+    'sathy': 'Sathy',
+    'satyamangalam': 'Sathy',
+    'erode': 'Erode',
+    'erd': 'Erode',
+    'salem': 'Salem',
+    'slm': 'Salem',
+    'chennai': 'Chennai',
+    'mas': 'Chennai',
+    'coimbatore': 'Coimbatore',
+    'cbe': 'Coimbatore',
+    'kovai': 'Coimbatore',
+    'madurai': 'Madurai',
+    'mdu': 'Madurai',
+    'trichy': 'Trichy',
+    'tiruchirappalli': 'Trichy',
+    'thanjavur': 'Thanjavur',
+    'tirunelveli': 'Tirunelveli',
+    'kanyakumari': 'Kanyakumari',
+    'vellore': 'Vellore',
+    'dindigul': 'Dindigul',
+    'karur': 'Karur',
+    'namakkal': 'Namakkal',
+    'hosur': 'Hosur',
+    'dharmapuri': 'Dharmapuri',
+    'krishnagiri': 'Krishnagiri'
+};
+
+function normalizeCity(name) {
+    if (!name) return '';
+    const clean = name.trim().toLowerCase();
+    for (const [alias, canonical] of Object.entries(CITY_ALIASES)) {
+        if (clean.includes(alias)) return canonical;
+    }
+    return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function findSchedules(sourceCity, destCity) {
+    const srcNorm = normalizeCity(sourceCity);
+    const destNorm = normalizeCity(destCity);
+
+    const matches = busSchedulesData.filter(s => {
+        const sFrom = normalizeCity(s.from);
+        const sTo = normalizeCity(s.to);
+        return sFrom.toLowerCase() === srcNorm.toLowerCase() && sTo.toLowerCase() === destNorm.toLowerCase();
+    });
+
+    if (matches.length > 0) {
+        return { source: srcNorm, dest: destNorm, schedules: matches, isRealJson: true };
+    }
+
+    // Dynamic generator fallback for any city pair in Tamil Nadu
+    const generated = [
+        { bus: `TN 33 N ${Math.floor(Math.random()*900)+3000}`, departure: '05:30 AM', arrival: '07:15 AM', type: 'DIRECT', duration: '1h 45m', fare: `₹${Math.floor(Math.random()*40)+50}` },
+        { bus: `TN 33 N ${Math.floor(Math.random()*900)+3000}`, departure: '07:45 AM', arrival: '09:30 AM', type: 'EXPRESS', duration: '1h 45m', fare: `₹${Math.floor(Math.random()*40)+50}` },
+        { bus: `TN 33 N ${Math.floor(Math.random()*900)+3000}`, departure: '10:15 AM', arrival: '12:00 PM', type: 'ULTRA DELUXE', duration: '1h 45m', fare: `₹${Math.floor(Math.random()*40)+50}` },
+        { bus: `TN 33 N ${Math.floor(Math.random()*900)+3000}`, departure: '01:30 PM', arrival: '03:15 PM', type: 'DIRECT', duration: '1h 45m', fare: `₹${Math.floor(Math.random()*40)+50}` },
+        { bus: `TN 33 N ${Math.floor(Math.random()*900)+3000}`, departure: '04:45 PM', arrival: '06:30 PM', type: 'EXPRESS', duration: '1h 45m', fare: `₹${Math.floor(Math.random()*40)+50}` },
+        { bus: `TN 33 N ${Math.floor(Math.random()*900)+3000}`, departure: '08:00 PM', arrival: '09:45 PM', type: 'NIGHT SERVICE', duration: '1h 45m', fare: `₹${Math.floor(Math.random()*40)+50}` }
+    ];
+
+    return { source: srcNorm, dest: destNorm, schedules: generated, isRealJson: false };
+}
 
 // Helper to call Python AI Microservice with fallback
 async function callPythonAi(endpoint, payload, fallbackData) {
@@ -83,82 +162,183 @@ router.post('/recommend-route', async (req, res) => {
     }
 });
 
-// 4. Chatbot Support (RAG / Local TNSTC Knowledge Base)
+// Session memory store fallback
+const userSessionContext = {};
+
+// 4. Chatbot Support (Advanced AI Transport Conversational RAG)
 router.post('/chatbot', async (req, res) => {
     try {
         const payload = req.body;
-        const message = (payload.message || '').toLowerCase();
+        const message = (payload.message || '').trim();
+        const msgLow = message.toLowerCase();
+        const userId = payload.user_id || 'default_user';
+        const history = payload.history || [];
 
-        // Super Advanced Dynamic Local NLP Fallback (Extracts intent and cities)
-        let fallbackText = '';
+        let responseText = '';
         let actions = [];
 
-        // 1. Dynamic Route Extraction (e.g., "buses from Chennai to Madurai")
-        const routeMatch = message.match(/(?:from|between)\s+([a-zA-Z\s]+?)\s+(?:to|and)\s+([a-zA-Z\s]+)/i);
+        // 1. Context Scanner: Extract cities from current message or previous conversation history
+        let rawSrc = '';
+        let rawDest = '';
+
+        // Match patterns like "erode to salem", "buses from sathy to erode", "salem to chennai"
+        let routeMatch = message.match(/(?:timing|schedules?|buses?|bus|time|when|departure)\s+(?:from|between|for)?\s*([a-zA-Z\s]+?)\s+(?:to|and|towards|bound for)\s+([a-zA-Z\s]+)/i)
+            || message.match(/(?:from|between)\s+([a-zA-Z\s]+?)\s+(?:to|and)\s+([a-zA-Z\s]+)/i)
+            || message.match(/([a-zA-Z\s]+)\s+to\s+([a-zA-Z\s]+)/i);
+
         if (routeMatch) {
-            const source = routeMatch[1].trim();
-            const dest = routeMatch[2].trim();
-
-            // Generate deterministic but dynamic data for these specific cities
-            const distance = Math.floor(source.length * dest.length * 4.5);
-            const fare = Math.floor(distance * 1.25);
-
-            fallbackText = `Here is the real-time AI schedule for ${source.toUpperCase()} to ${dest.toUpperCase()}:
-✅ TNSTC Express (TN-${Math.floor(Math.random() * 50) + 10}-N-${Math.floor(Math.random() * 9000) + 1000}) 
-• Departs in: 15 mins (Estimated)
-• Cost: ₹${fare} for SETC Ultra Deluxe
-• Travel Distance: ~${distance} km
-You can view the exact optimal highway routes on the map right now!`;
-
-            actions = [`Book ${source} to ${dest}`, "Check Seat Layout", "View Live Map"];
-
-        } else if (message.includes('seat') || message.includes('available') || message.includes('book')) {
-            const randAvail = Math.floor(Math.random() * 30) + 5;
-            fallbackText = `Currently, the active bus on your dashboard has ${randAvail} seats available out of 54. 
-You can instantly book a seat using the 'Book Ticket' module, which provides a live 54-seat interactive layout!`;
-            actions = ["Open Seat Map Modal"];
-
-        } else if (message.includes('fast') || message.includes('optimal') || message.includes('recommend') || message.includes('suggest')) {
-            fallbackText = `My AI Engine is constantly analyzing traffic on NH-44 and state highways. 
-I recommend selecting the "Optimal Path" from the AI Recommendations tab. It typically saves up to 25% travel time by bypassing heavy local city traffic!`;
-            actions = ["Show AI Recommendations"];
-
-        } else if (message.includes('where is') || message.includes('track') || message.includes('live')) {
-            fallbackText = `The bus is currently tracked via live Socket.IO GPS stream. 
-Please look at the "Journey Timeline & Animated Route Progress" bar on your dashboard. It displays real-time coordinates, current speed, and exact distance remaining!`;
-            actions = ["Scroll to Map"];
-
-        } else {
-            // General highly dynamic greeting
-            fallbackText = `I am analyzing live TNSTC fleet metrics. I can dynamically guide you.
-Try asking me something specific like:
-"Show me buses from Chennai to Coimbatore" or "How many seats are available?"`;
+            rawSrc = routeMatch[1].trim();
+            rawDest = routeMatch[2].trim();
+            userSessionContext[userId] = { source: rawSrc, dest: rawDest };
         }
 
-        const fallback = {
+        // If no route in current message, scan conversation history (backwards)
+        if ((!rawSrc || !rawDest) && Array.isArray(history) && history.length > 0) {
+            for (let i = history.length - 1; i >= 0; i--) {
+                const hText = (history[i].text || '').toLowerCase();
+                const hMatch = hText.match(/(?:from|between)\s+([a-zA-Z\s]+?)\s+(?:to|and)\s+([a-zA-Z\s]+)/i)
+                    || hText.match(/([a-zA-Z\s]+)\s+to\s+([a-zA-Z\s]+)/i);
+                if (hMatch) {
+                    rawSrc = hMatch[1].trim();
+                    rawDest = hMatch[2].trim();
+                    userSessionContext[userId] = { source: rawSrc, dest: rawDest };
+                    break;
+                }
+            }
+        }
+
+        // Fallback to session context store if still missing
+        if ((!rawSrc || !rawDest) && userSessionContext[userId]) {
+            rawSrc = userSessionContext[userId].source;
+            rawDest = userSessionContext[userId].dest;
+        }
+
+        // 2. Intent Detection Flags
+        const isFollowUp = msgLow.includes('another') || msgLow.includes('more') || msgLow.includes('other') || msgLow.includes('next') || msgLow.includes('option');
+        const isNight = msgLow.includes('night') || msgLow.includes('late') || msgLow.includes('evening');
+        const isReturn = msgLow.includes('return') || msgLow.includes('back') || msgLow.includes('opposite');
+        const isFare = msgLow.includes('fare') || msgLow.includes('cost') || msgLow.includes('price') || msgLow.includes('ticket') || msgLow.includes('pass') || msgLow.includes('rate');
+        const isSeat = msgLow.includes('seat') || msgLow.includes('available') || msgLow.includes('book') || msgLow.includes('reserve') || msgLow.includes('capacity');
+        const isTrack = msgLow.includes('where') || msgLow.includes('track') || msgLow.includes('location') || msgLow.includes('gps') || msgLow.includes('live') || msgLow.includes('map');
+        const isHelp = msgLow.includes('help') || msgLow.includes('emergency') || msgLow.includes('complaint') || msgLow.includes('sos');
+
+        // Handle Return Route Swap
+        if (isReturn && rawSrc && rawDest) {
+            const temp = rawSrc;
+            rawSrc = rawDest;
+            rawDest = temp;
+            userSessionContext[userId] = { source: rawSrc, dest: rawDest };
+        }
+
+        // 3. AI Intelligence Routing & RAG Data Formatting
+        if (rawSrc && rawDest && (routeMatch || isFollowUp || isNight || isReturn || msgLow.includes('bus') || msgLow.includes('timing') || msgLow.includes('schedule') || msgLow.includes('available'))) {
+            const { source, dest, schedules } = findSchedules(rawSrc, rawDest);
+
+            if (schedules && schedules.length > 0) {
+                const sampleDuration = schedules[0].duration || '1h 30m';
+                const sampleFare = schedules[0].fare || '₹55';
+
+                if (isFollowUp || isNight) {
+                    // Filter evening & night schedules
+                    const pmSchedules = schedules.filter(s => s.departure.includes('PM'));
+                    const displayList = pmSchedules.length > 0 ? pmSchedules.slice(0, 5) : schedules.slice(4, 9);
+
+                    const lines = displayList.map(s => {
+                        const seatsLeft = Math.floor(Math.random() * 20) + 18;
+                        return `• **${s.bus}** (${s.type || 'EXPRESS'}) | Dep: **${s.departure}** ➔ **${s.arrival}** | 💺 **${seatsLeft} Seats**`;
+                    }).join('\n');
+
+                    responseText = `🚌 **Evening & Night Buses: ${source.toUpperCase()} ➔ ${dest.toUpperCase()}**
+⏱️ ~${sampleDuration} | Fare: **${sampleFare}** | Total: **${schedules.length} Buses**
+
+${lines}`;
+                    actions = [`Book ${source} to ${dest}`, `Return ${dest} ➔ ${source}`, `Seats for ${source}`];
+
+                } else {
+                    // Full Overview Listing (All matching buses)
+                    const overviewList = schedules.slice(0, 5).map(s => {
+                        const seatsLeft = Math.floor(Math.random() * 25) + 15;
+                        return `• **${s.bus}** (${s.type || 'EXPRESS'}) | Dep: **${s.departure}** ➔ **${s.arrival}** | 💺 **${seatsLeft} Seats**`;
+                    }).join('\n');
+
+                    responseText = `🚌 **Available Buses: ${source.toUpperCase()} ➔ ${dest.toUpperCase()}**
+⏱️ ~${sampleDuration} | Fare: **${sampleFare}** | Frequency: **Every 20 mins**
+
+${overviewList}`;
+                    actions = [`another buses ?`, `Book ${source} to ${dest}`, `Return ${dest} ➔ ${source}`];
+                }
+
+            } else {
+                responseText = `🚌 **TNSTC Buses: ${rawSrc} ➔ ${rawDest}**
+• **Frequency**: Departures every 25 mins (05:00 AM - 10:30 PM)
+• **Travel Time**: ~1 hr 45 min | **Fare**: ₹55`;
+                actions = [`Book ${rawSrc} to ${rawDest}`, "Check Live Seats"];
+            }
+
+        } else if (isFare) {
+            const fareSrc = rawSrc || 'Sathy';
+            const fareDest = rawDest || 'Erode';
+            responseText = `🎫 **Fare Structure (${fareSrc} ➔ ${fareDest})**:
+• **Ordinary Bus**: ₹10 - ₹45
+• **Express / Mofussil**: **₹55**
+• **SETC Ultra Deluxe**: **₹140**
+• **Discounts**: Senior Citizens 10% off; Free pass for Women & Students.`;
+            actions = ["Book Ticket Now", `Buses for ${fareSrc} to ${fareDest}`];
+
+        } else if (isSeat) {
+            const sSrc = rawSrc || 'Sathy';
+            const sDest = rawDest || 'Erode';
+            const randSeats = Math.floor(Math.random() * 25) + 15;
+            responseText = `💺 **Seat Occupancy (${sSrc} ➔ ${sDest})**:
+• **Available Seats**: **${randSeats} Seats** out of 54
+• **Window Seats**: 8 Left | **Aisle Seats**: 12 Left`;
+            actions = [`Book ${sSrc} to ${sDest}`, "View 54-Seat Layout"];
+
+        } else if (isTrack) {
+            responseText = `📍 **Live GPS Tracking**:
+Real-time Socket.IO coordinates streaming. Open the **'Live Map'** tab to track moving bus locations across Tamil Nadu!`;
+            actions = ["View Live Map Overview", "Check Speed Telemetry"];
+
+        } else if (isHelp) {
+            responseText = `🚨 **TNSTC Helpline & SOS**:
+• **Toll-Free Control Room**: **1800-425-5432**
+• **Driver SOS**: Direct Highway Patrol Emergency Sync.`;
+            actions = ["Lodge Complaint", "Contact State Helpline"];
+
+        } else {
+            responseText = `🤖 **TNSTC AI Assistant**:
+Ask me about bus timings, seat availability, ticket fares, or live GPS tracking!
+
+Examples:
+• *"Buses from Erode to Salem"*
+• *"another buses ?"*
+• *"Fare for Sathy to Erode"*`;
+            actions = ["Erode to Salem Buses", "Sathy to Erode Timings", "Check Seat Availability"];
+        }
+
+        const responseObj = {
             status: 'success',
-            response: fallbackText,
+            response: responseText,
             suggested_actions: actions,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            ai_model: 'Dynamic Intent Parser v3.0'
+            ai_model: 'TNSTC AI RAG Conversational Engine v6.0'
         };
 
-        const data = await callPythonAi('chatbot', payload, fallback);
-
-        // Store chat in Chatbot_History table
+        // Log to Chatbot_History table
         try {
             await db.run(
                 `INSERT INTO Chatbot_History (user_id, user_query, ai_response, suggested_actions) VALUES (?, ?, ?, ?)`,
-                [payload.user_id || 1, payload.message || 'hello', data.response || fallbackText, JSON.stringify(data.suggested_actions || actions)]
+                [userId, message, responseText, JSON.stringify(actions)]
             );
         } catch (e) {
-            // Ignore audit log error
+            // Non-critical audit log catch
         }
 
-        res.json(data);
+        res.json(responseObj);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
 module.exports = router;
+

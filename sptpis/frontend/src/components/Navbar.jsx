@@ -22,23 +22,21 @@ const Navbar = ({ activeTab, setActiveTab, openNotifications }) => {
         <div className="flex items-center justify-between h-16">
           {/* Logo & Title */}
           <div
-            className="flex items-center gap-3 cursor-pointer group"
+            className="flex items-center gap-3.5 cursor-pointer group"
             onClick={() => setActiveTab('passenger')}
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-500 flex items-center justify-center shadow-md shadow-brand-500/20 group-hover:scale-105 transition-transform">
-              <Bus className="w-6 h-6 text-white" />
+            <div className="relative">
+                <div className="absolute inset-0 bg-brand-500 rounded-xl blur-md opacity-30 group-hover:opacity-60 transition-opacity"></div>
+                <div className="relative w-11 h-11 rounded-xl bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700/80 flex items-center justify-center shadow-[inset_0_1px_rgba(255,255,255,0.1)] group-hover:border-brand-500/50 transition-colors">
+                  <Bus className="w-6 h-6 text-brand-400 group-hover:scale-110 transition-transform duration-300" />
+                </div>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-lg bg-gradient-to-r from-white via-slate-200 to-brand-300 bg-clip-text text-transparent">
-                  TNSTC Smart Transport
-                </span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">
-                  Live GPS
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 hidden sm:block">
-                Tamil Nadu Passenger Information System
+            <div className="flex flex-col">
+              <span className="font-black text-xl tracking-tighter bg-gradient-to-r from-white via-slate-300 to-brand-200 bg-clip-text text-transparent transform group-hover:translate-x-1 transition-transform duration-300">
+                TNSTC Smart Transport
+              </span>
+              <p className="text-[11px] font-bold tracking-widest uppercase text-slate-500 transform group-hover:translate-x-1 transition-transform duration-300 delay-75">
+                Command Center Console
               </p>
             </div>
           </div>
@@ -70,13 +68,22 @@ const Navbar = ({ activeTab, setActiveTab, openNotifications }) => {
             <div className="relative">
               <button
                 onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-sm font-medium text-slate-200 transition"
+                className="flex items-center gap-3 pl-1 pr-3 py-1 rounded-full bg-slate-900 border border-slate-700/80 hover:border-brand-500/50 hover:bg-slate-800 transition-all group shadow-sm hover:shadow-brand-500/20"
                 title="Profile & Options"
               >
-                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="capitalize font-semibold text-brand-300">{user?.role || 'User'}</span>
-                <span className="text-xs text-slate-400 hidden sm:inline">({user?.name?.split(' ')[0]})</span>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center shadow-inner relative overflow-hidden">
+                    <span className="text-white font-bold text-xs uppercase relative z-10">{user?.name?.charAt(0) || 'U'}</span>
+                    <div className="absolute inset-x-0 bottom-0 h-1/2 bg-white/20"></div>
+                </div>
+                <div className="flex flex-col items-start pr-2">
+                    <span className="text-xs font-bold text-white capitalize leading-tight group-hover:text-brand-300 transition-colors">
+                        {user?.role?.replace('_', ' ') || 'User'}
+                    </span>
+                    <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Active
+                    </span>
+                </div>
+                <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform duration-300 ${roleDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {roleDropdownOpen && (

@@ -32,7 +32,21 @@ export const NotificationProvider = ({ children }) => {
   ]);
 
   const [activeToast, setActiveToast] = useState(null);
-  const { lastEmergency, lastOccupancyUpdate } = useSocket() || {};
+  const { lastEmergency, lastOccupancyUpdate, lastSystemAlert } = useSocket() || {};
+
+  useEffect(() => {
+    if (lastSystemAlert) {
+      const newNotif = {
+        id: Date.now(),
+        title: lastSystemAlert.title,
+        message: lastSystemAlert.message,
+        category: 'System Broadcast',
+        time: 'Just now',
+        isRead: false
+      };
+      setNotifications((prev) => [newNotif, ...prev]);
+    }
+  }, [lastSystemAlert]);
 
   useEffect(() => {
     if (lastEmergency) {

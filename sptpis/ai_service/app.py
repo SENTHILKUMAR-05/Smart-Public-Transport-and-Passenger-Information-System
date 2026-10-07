@@ -1,9 +1,21 @@
 import os
+import sqlite3
 import joblib
 import pandas as pd
 import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import google.generativeai as genai
+
+DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend", "database", "sptpis.sqlite"))
+
+# Initialize Gemini if key exists
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+    llm_model = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    llm_model = None
 
 app = Flask(__name__)
 CORS(app)
@@ -213,104 +225,63 @@ def recommend_route():
 @app.route("/api/ai/chatbot", methods=["POST"])
 def chatbot():
     """
-    RAG-inspired AI Chat Assistant with domain expertise in Tamil Nadu State Transport (TNSTC/SETC).
-    Handles queries on routes, seats, schedules, bus location, and fastest routes.
+    True RAG AI Chat Assistant. 
+    Pulls live data from SQLite and passes it as context to Gemini for natural reasoning.
     """
     data = request.json or {}
-    message = (data.get("message") or "").strip().lower()
-    user_id = data.get("user_id", "guest")
+    message = (data.get("message") or "").strip()
     
-    # Knowledge base rules & RAG answers
+    # 1. Retrieve Current Live Context from DB
+    context_str = "CURRENT SYSTEM DATA UNAVAILABLE"
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        buses = cur.execute("SELECT registration_number, current_route_id, status FROM Buses").fetchall()
+        routes = cur.execute("SELECT route_id, name, source_city, destination_city FROM Routes").fetchall()
+        trips = cur.execute("SELECT trip_id, bus_id, route_id, scheduled_departure, status FROM Trips WHERE status != 'Completed'").fetchall()
+        
+        bus_str = ", ".join([f"{b['registration_number']} (Route {b['current_route_id']}, Stat: {b['status']})" for b in buses[:5]])
+        route_str = ", ".join([f"R{r['route_id']}: {r['source_city']} to {r['destination_city']}" for r in routes[:5]])
+        trip_str = ", ".join([f"Trip {t['trip_id']} departs at {t['scheduled_departure']} (Stat: {t['status']})" for t in trips[:5]])
+        
+        context_str = f"Live Buses: {bus_str}. Routes: {route_str}. Active Trips: {trip_str}."
+        conn.close()
+    except Exception as e:
+        print("DB Access error for RAG:", e)
+
     response_text = ""
-    suggested_actions = []
-    
-    if "salem" in message and ("next bus" in message or "when" in message or "time" in message):
-        response_text = (
-            "The next TNSTC Express bus to Salem (Route 101) departs Dharmapuri Bus Stand at 10:15 AM (TN-29-N-1542). "
-            "It is currently 12 km away from Dharmapuri with an estimated arrival time of 14 minutes. "
-            "23 seats are currently available for online booking!"
-        )
-        suggested_actions = ["Book Salem Ticket", "Track Bus TN-29-N-1542", "View Route Map"]
-        
-    elif "dharmapuri" in message and "erode" in message:
-        response_text = (
-            "We have 2 active buses operating from Dharmapuri to Erode today:\n\n"
-            "1. SETC Ultra Deluxe (TN-29-N-1542) - Route: Dharmapuri → Salem → Erode → Sathyamangalam. Departs 10:15 AM | Fare: ₹145 | Seats Available: 23/54\n"
-            "2. TNSTC Fast Passenger (TN-38-N-4412) - Route: Dharmapuri → Salem → Erode. Departs 11:30 AM | Fare: ₹120 | Seats Available: 38/54\n\n"
-            "You can use our interactive route visualization to track both buses live!"
-        )
-        suggested_actions = ["Book Dharmapuri to Erode", "Compare Routes", "Live Fleet Map"]
-        
-    elif "seat" in message or "available" in message or "how many" in message:
-        response_text = (
-            "For Bus TN-29-N-1542 (Dharmapuri to Sathyamangalam):\n"
-            "• Total Seats: 54\n"
-            "• Booked Seats: 31 (Online Reserved: 18, Counter: 13)\n"
-            "• Available Seats: 23\n\n"
-            "You can select your preferred window or aisle seat directly on the interactive 54-seat bus layout!"
-        )
-        suggested_actions = ["Open Seat Map", "Check Another Bus"]
-        
-    elif "where is my bus" in message or "currently" in message or "live" in message or "tracking" in message or "location" in message:
-        response_text = (
-            "Bus TN-29-N-1542 (Dharmapuri → Sathyamangalam) is currently moving at 58 km/h on the NH-44 Salem-Bangalore Highway.\n"
-            "• Current Status: En route between Dharmapuri and Salem (Journey Completed: 65%)\n"
-            "• Next Stop: Salem Central Bus Stand (Estimated arrival: 18 mins)\n"
-            "• Weather: Clear | Traffic: Moderate"
-        )
-        suggested_actions = ["View Live Map", "Set Arrival Alert"]
-        
-    elif "fastest" in message or "recommend" in message or "suggest" in message or "route" in message:
-        response_text = (
-            "AI Route Analysis for Dharmapuri to Sathyamangalam:\n\n"
-            "✅ Recommended Route: Route B (via Bypass Road - 4 Stops - 3 hr 15 min)\n"
-            "• Reason: Less traffic and lower passenger density (52% occupancy vs 88% on Route A).\n"
-            "• Savings: Saves 30 minutes compared to Route A (3 hr 45 min)."
-        )
-        suggested_actions = ["Select Route B", "View Comparison Chart"]
-        
-    elif "pink" in message or "women" in message or "free" in message:
-        response_text = (
-            "Tamil Nadu Free Women's Bus Scheme (Pink Buses) is active across all TNSTC Town and Ordinary city bus services! "
-            "Women passengers, transgender individuals, and accompanying children can travel free of charge. "
-            "Express and SETC Ultra Deluxe buses have standard government-regulated fares."
-        )
-        suggested_actions = ["View Fare Table", "Search Town Buses"]
-        
-    elif "emergency" in message or "help" in message or "accident" in message:
-        response_text = (
-            "🚨 In case of an emergency on any TNSTC/SETC bus:\n"
-            "1. Drivers can press the Emergency Reporting button (Accident / Breakdown / Medical) on their Driver Dashboard.\n"
-            "2. Passengers can contact TNSTC 24/7 Helpline at 1800-425-4424 or Police Helpline 112.\n"
-            "Our Admin Control Center monitors all active buses via GPS."
-        )
-        suggested_actions = ["Call Helpline 1800-425-4424", "Report Incident"]
-        
+    suggested_actions = ["Check Bus Timing", "Live Tracking", "Book a ticket"]
+
+    # 2. Use Gemini API if configured
+    if llm_model:
+        prompt = f"""You are the Tamil Nadu Smart Public Transport (TNSTC) AI Assistant. 
+Answer the passenger's query dynamically using ONLY the following Live Database Context (do not invent data, if you lack info just say so kindly):
+Live Context: {context_str}
+
+Passenger Query: {message}
+
+Provide a helpful, realistic, short and conversational response."""
+        try:
+            resp = llm_model.generate_content(prompt)
+            response_text = resp.text.strip()
+        except Exception as e:
+            response_text = f"[AI API Error - Fallback] Our live data shows: {context_str}. How else can I help?"
     else:
-        response_text = (
-            f"Hello! I am the Tamil Nadu Smart Public Transport AI Assistant. You asked about: \"{message}\".\n\n"
-            "I can assist you with:\n"
-            "• Live bus schedules (e.g., \"When is the next bus to Salem?\")\n"
-            "• Route information (e.g., \"Show buses from Dharmapuri to Erode\")\n"
-            "• Live seat availability (e.g., \"How many seats are available?\")\n"
-            "• Real-time bus tracking (e.g., \"Where is my bus currently?\")\n"
-            "• AI Route recommendation (e.g., \"Suggest the fastest route\")\n\n"
-            "How may I help your journey today?"
-        )
-        suggested_actions = [
-            "When is the next bus to Salem?",
-            "Show buses from Dharmapuri to Erode",
-            "How many seats are available?",
-            "Where is my bus currently?",
-            "Suggest the fastest route"
-        ]
-        
+        # 3. Dynamic Rule Fallback if no API key is provided
+        message_low = message.lower()
+        if "bus" in message_low or "route" in message_low or "time" in message_low:
+            response_text = f"Here is the real-time data I found on our servers:\n{context_str}\n\n(Note: Define GEMINI_API_KEY environment variable to enable natural language parsing of this data!)"
+        else:
+            response_text = "I am connected to the live TNSTC database! Please ask me about buses, routes, or trips. (Set GEMINI_API_KEY to unlock advanced conversational RAG capabilities)."
+
     return jsonify({
         "status": "success",
         "response": response_text,
         "suggested_actions": suggested_actions,
         "timestamp": pd.Timestamp.now().strftime("%I:%M %p"),
-        "ai_model": "TNSTC Domain NLP / RAG v2.4"
+        "ai_model": "Gemini-1.5 RAG Integration" if llm_model else "Live DB Fetcher (No LLM Key)"
     })
 
 if __name__ == "__main__":

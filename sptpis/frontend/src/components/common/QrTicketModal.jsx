@@ -86,11 +86,17 @@ const QrTicketModal = ({ ticket, onClose }) => {
             </div>
           </div>
 
-          {/* QR Code Token Block */}
-          <div className="flex flex-col items-center justify-center p-5 bg-slate-950 rounded-2xl border border-slate-800 text-center">
+          {/* QR Code & OTP Token Block */}
+          <div className="flex flex-col items-center justify-center p-5 bg-slate-950 rounded-2xl border border-slate-800 text-center relative overflow-hidden">
+            {/* Boarding OTP Badge */}
+            <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-2 text-center w-full">
+              <span className="text-[10px] uppercase font-mono tracking-widest text-emerald-400 font-bold block">Boarding Verification OTP</span>
+              <span className="text-2xl font-mono font-black text-white tracking-[0.3em]">{ticket.otp || ticket.verification_otp || '789012'}</span>
+            </div>
+
             <div className="p-3 bg-white rounded-xl mb-3 shadow-lg">
               {/* Responsive SVG QR Code representation */}
-              <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 100 100" fill="#0f172a">
+              <svg xmlns="http://www.w3.org/2000/svg" width="130" height="130" viewBox="0 0 100 100" fill="#0f172a">
                 <rect x="10" y="10" width="25" height="25" rx="2" fill="none" stroke="#0f172a" strokeWidth="6"/>
                 <rect x="18" y="18" width="9" height="9" fill="#0f172a"/>
                 <rect x="65" y="10" width="25" height="25" rx="2" fill="none" stroke="#0f172a" strokeWidth="6"/>
@@ -106,11 +112,11 @@ const QrTicketModal = ({ ticket, onClose }) => {
               </svg>
             </div>
             <p className="text-xs font-mono text-slate-400 tracking-wider">
-              Token: {ticket.qr_code_token || 'QR-TNSTC-9901-22'}
+              PNR / Token: <span className="text-white font-bold">{ticket.booking_reference || ticket.qr_code_token || 'TNSTC-BK-882142'}</span>
             </p>
-            <div className="flex items-center gap-1 text-[11px] text-emerald-400 mt-2">
+            <div className="flex items-center gap-1 text-[11px] text-emerald-400 mt-2 font-medium">
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Conductor Digital Scan Ready</span>
+              <span>Show QR or 6-Digit OTP to Driver / Conductor</span>
             </div>
           </div>
 

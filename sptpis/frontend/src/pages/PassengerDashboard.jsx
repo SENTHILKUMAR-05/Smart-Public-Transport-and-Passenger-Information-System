@@ -3,12 +3,13 @@ import axios from 'axios';
 import { useSocket } from '../context/SocketContext';
 import { useNotifications } from '../context/NotificationContext';
 import RouteMap from '../components/Map/RouteMap';
+import QrTicketModal from '../components/common/QrTicketModal';
 import villageNames from './village_names.json';
 import busSchedules from './bus_schedules.json';
 import {
   Bus, MapPin, Calendar, Clock, Navigation, Search,
   Map, Activity, AlertTriangle, ArrowRight, ArrowLeft, X, Heart, ShieldAlert, WifiOff,
-  CheckCircle, CreditCard, LayoutGrid, Armchair, Camera
+  CheckCircle, CreditCard, LayoutGrid, Armchair, Camera, QrCode
 } from 'lucide-react';
 
 const PassengerDashboard = () => {
@@ -144,9 +145,37 @@ const PassengerDashboard = () => {
   const [nextBookingLeg, setNextBookingLeg] = useState(null);
   const [selectedSeats, setSelectedSeats] = useState([]);
   const [bookingSuccess, setBookingSuccess] = useState(false);
-  const [bookedLegs, setBookedLegs] = useState({});
+  const [bookedLegs, setBookedLegs] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sptpis_valid_tickets_obj');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
   const [bookFilterDate, setBookFilterDate] = useState(new Date().toISOString().split('T')[0]);
   const [bookFilterTime, setBookFilterTime] = useState('00:00');
+  const [selectedTicketModal, setSelectedTicketModal] = useState(null);
+
+  // Sync bookedLegs to localStorage whenever updated
+  useEffect(() => {
+    try {
+      localStorage.setItem('sptpis_valid_tickets_obj', JSON.stringify(bookedLegs));
+      // Save array of valid tickets for Driver Scanner cross-read
+      const validArray = Object.values(bookedLegs).map(b => ({
+        pnr: b.pnr || b.booking_reference,
+        otp: b.otp,
+        qrToken: `QR-${b.pnr || b.otp}`,
+        bus: b.leg?.bus,
+        from: b.leg?.from,
+        to: b.leg?.to,
+        seats: b.seats,
+        date: b.date,
+        status: 'VALID'
+      }));
+      localStorage.setItem('sptpis_valid_tickets', JSON.stringify(validArray));
+    } catch (e) {}
+  }, [bookedLegs]);
 
   // Complaint state
   const [complaintCategory, setComplaintCategory] = useState('');
@@ -166,11 +195,34 @@ const PassengerDashboard = () => {
     const handleOnline = () => setIsOffline(false);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('online', handleOnline);
+
+    fetchComplaints();
+
     return () => {
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('online', handleOnline);
     };
   }, []);
+
+  const fetchComplaints = async () => {
+    try {
+      const res = await axios.get('http://localhost:5000/api/passenger/complaints?user_id=Passenger1');
+      // map backend names to frontend names
+      const mapped = res.data.map(c => ({
+        id: 'C-' + c.complaint_id,
+        date: new Date(c.created_date).toLocaleDateString(),
+        time: new Date(c.created_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        busNumber: c.location || 'N/A',
+        category: c.category,
+        text: c.description || '',
+        statusStr: c.statusStr,
+        photoUrl: null
+      }));
+      setRaisedComplaints(mapped);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const handleSearch = async (e, overrideSrc = null, overrideDest = null) => {
     if (e) e.preventDefault();
@@ -369,26 +421,29 @@ const PassengerDashboard = () => {
     setActiveTab('booking');
   };
 
-  const submitComplaint = (e) => {
+  const submitComplaint = async (e) => {
     e.preventDefault();
-    const newComplaint = {
-      id: "C-" + Math.floor(Math.random() * 900000 + 100000),
-      date: new Date().toLocaleDateString(),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      busNumber: complaintBusNumber,
-      category: complaintCategory,
-      text: complaintText || 'No additional details provided.',
-      photoUrl: complaintPhoto ? URL.createObjectURL(complaintPhoto) : null,
-      statusStr: 'In Review (Depot)'
-    };
+    try {
+      const payload = {
+        category: complaintCategory,
+        busNumber: complaintBusNumber,
+        text: complaintText,
+        photoUrl: complaintPhoto ? URL.createObjectURL(complaintPhoto) : null,
+        user_id: 'Passenger1'
+      };
+      await axios.post('http://localhost:5000/api/passenger/complaints', payload);
+      alert(`Complaint submitted for ${complaintCategory}! Connected dynamically to Depot Admin.`);
 
-    setRaisedComplaints([newComplaint, ...raisedComplaints]);
-    alert(`Complaint submitted for ${complaintCategory}! Connected dynamically to Depot Admin.`);
-    setActiveTab('raised');
-    setComplaintCategory('');
-    setComplaintText('');
-    setComplaintPhoto(null);
-    setComplaintBusNumber('');
+      await fetchComplaints();
+      setActiveTab('raised');
+      setComplaintCategory('');
+      setComplaintText('');
+      setComplaintPhoto(null);
+      setComplaintBusNumber('');
+    } catch (err) {
+      console.error(err);
+      alert("Failed to submit complaint.");
+    }
   };
 
   const renderHome = () => (
@@ -1116,7 +1171,9 @@ const PassengerDashboard = () => {
 
     if (bookingSuccess) {
       const nextLeg = nextBookingLeg;
-      const pnrNum = "TNSTC-" + Math.floor(Math.random() * 900000000 + 100000000);
+      const currentTicket = bookedLegs[`${date}-${bookingContext.bus}-${bookingContext.departure}`] || {};
+      const pnrNum = currentTicket.pnr || "TNSTC-BK-882190";
+      const otpCode = currentTicket.otp || "789012";
 
       return (
         <div className="flex flex-col items-center justify-center py-12 animate-in fade-in zoom-in-95 duration-700 min-h-[70vh]">
@@ -1124,15 +1181,21 @@ const PassengerDashboard = () => {
           <div className="bg-slate-900 border border-emerald-500/20 rounded-3xl p-8 shadow-[0_20px_60px_-15px_rgba(16,185,129,0.2)] w-full max-w-md relative overflow-hidden mb-8">
             <div className="absolute top-0 right-0 left-0 h-2 bg-emerald-500"></div>
 
-            <div className="flex flex-col items-center mb-8 relative z-10">
-              <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mb-4">
-                <CheckCircle className="w-10 h-10 text-emerald-400 shadow-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.8)]" />
+            <div className="flex flex-col items-center mb-6 relative z-10">
+              <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mb-3">
+                <CheckCircle className="w-8 h-8 text-emerald-400 shadow-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.8)]" />
               </div>
               <h2 className="text-2xl font-black text-white">Booking Confirmed</h2>
-              <p className="text-slate-400 text-sm mt-1">Your seats are securely reserved!</p>
+              <p className="text-slate-400 text-xs mt-1">Seats reserved! Present QR code or OTP to Driver</p>
             </div>
 
-            <div className="border-t border-b border-slate-700/50 border-dashed py-6 my-6 space-y-4 relative z-10">
+            {/* BOARDING OTP DISPLAY */}
+            <div className="bg-slate-950 border border-emerald-500/30 rounded-2xl p-4 text-center my-4 relative z-10 shadow-inner">
+              <span className="text-[10px] uppercase font-mono font-bold tracking-widest text-emerald-400 block mb-1">Boarding Verification OTP</span>
+              <span className="text-3xl font-mono font-black text-white tracking-[0.3em]">{otpCode}</span>
+            </div>
+
+            <div className="border-t border-b border-slate-700/50 border-dashed py-4 my-4 space-y-3 relative z-10 text-sm">
               <div className="flex justify-between items-center">
                 <span className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">PNR Ticket No.</span>
                 <span className="text-white font-mono font-bold tracking-widest">{pnrNum}</span>
@@ -1146,6 +1209,13 @@ const PassengerDashboard = () => {
                 <span className="text-emerald-400 font-bold">₹{totalAmount + (selectedSeats.length * 20)}</span>
               </div>
             </div>
+
+            <button
+              onClick={() => setSelectedTicketModal(currentTicket)}
+              className="w-full mb-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-lg flex items-center justify-center gap-2 transition"
+            >
+              <QrCode className="w-5 h-5" /> View QR Pass & Digital Boarding Pass
+            </button>
 
             <div className="flex justify-between items-center mb-2 relative z-10">
               <div>
@@ -1343,13 +1413,27 @@ const PassengerDashboard = () => {
 
                   <button
                     onClick={() => {
+                      const generatedPnr = "TNSTC-BK-" + Math.floor(100000 + Math.random() * 900000);
+                      const generatedOtp = String(Math.floor(100000 + Math.random() * 900000));
+                      const ticketObj = {
+                        pnr: generatedPnr,
+                        otp: generatedOtp,
+                        booking_reference: generatedPnr,
+                        booking_status: 'Confirmed',
+                        boarding_stop: bookingContext.from,
+                        destination_stop: bookingContext.to,
+                        travel_date: date,
+                        seat_number: selectedSeats.join(', '),
+                        seats: selectedSeats.join(', '),
+                        registration_number: bookingContext.bus || 'TN-33-N-1122',
+                        fare_paid: totalAmount + (selectedSeats.length * 20),
+                        date: date,
+                        leg: bookingContext
+                      };
+
                       setBookedLegs(prev => ({
                         ...prev,
-                        [`${date}-${bookingContext.bus}-${bookingContext.departure}`]: {
-                          seats: selectedSeats.join(', '),
-                          date: date,
-                          leg: bookingContext
-                        }
+                        [`${date}-${bookingContext.bus}-${bookingContext.departure}`]: ticketObj
                       }));
                       setBookingSuccess(true);
                     }}
@@ -1455,12 +1539,30 @@ const PassengerDashboard = () => {
                   <div className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-2">Seat(s)</div>
                   <div className="text-brand-400 font-bold">{b.seats}</div>
 
-                  {!isFinishedTab && (
+                  {!isFinishedTab ? (
+                    <div className="mt-3 flex flex-col gap-2 w-full">
+                      <button
+                        onClick={() => setSelectedTicketModal(b)}
+                        className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded flex items-center justify-center gap-2 transition text-xs shadow-md"
+                      >
+                        <QrCode className="w-4 h-4" /> QR Pass & OTP: <span className="font-mono text-amber-300 font-black">{b.otp || '789012'}</span>
+                      </button>
+                      <button
+                        onClick={() => handleTrackBus(b.leg.from, b.leg.to)}
+                        className="w-full py-2 px-3 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded flex items-center justify-center gap-2 transition text-xs shadow-[0_5px_15px_-3px_rgba(37,99,235,0.4)]"
+                      >
+                        <Activity className="w-4 h-4" /> Track Live
+                      </button>
+                    </div>
+                  ) : (
                     <button
-                      onClick={() => handleTrackBus(b.leg.from, b.leg.to)}
-                      className="mt-4 w-full py-2 px-4 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded flex items-center justify-center gap-2 transition text-sm shadow-[0_5px_15px_-3px_rgba(37,99,235,0.4)]"
+                      onClick={() => {
+                        setComplaintBusNumber(b.leg.bus);
+                        setActiveTab('complaint');
+                      }}
+                      className="mt-4 w-full py-2 px-4 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded flex items-center justify-center gap-2 transition text-sm shadow-[0_5px_15px_-3px_rgba(225,29,72,0.4)]"
                     >
-                      <Activity className="w-4 h-4" /> Track Live
+                      <ShieldAlert className="w-4 h-4" /> Give Feedback
                     </button>
                   )}
                 </div>
@@ -1669,6 +1771,14 @@ const PassengerDashboard = () => {
           </button>
         </footer>
       </div>
+
+      {/* QR Ticket Modal popup */}
+      {selectedTicketModal && (
+        <QrTicketModal
+          ticket={selectedTicketModal}
+          onClose={() => setSelectedTicketModal(null)}
+        />
+      )}
     </div>
   );
 };

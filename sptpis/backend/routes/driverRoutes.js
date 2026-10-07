@@ -211,7 +211,6 @@ router.post('/report', async (req, res) => {
 
 // GPS Location Stream Emulation Post
 router.post('/location', async (req, res) => {
-    // In production, this stores GPS queue in redis or triggers sockets
     const io = req.app.get('io');
     if (io) {
         io.emit('driver_gps_update', {
@@ -223,4 +222,57 @@ router.post('/location', async (req, res) => {
     res.json({ success: true });
 });
 
+// Validate QR Ticket / Pass
+router.post('/verify-qr', async (req, res) => {
+    try {
+        const { qr_code, trip_id } = req.body;
+        if (!qr_code) return res.status(400).json({ error: 'QR Code is required' });
+
+        // Simulate or lookup ticket verification logic
+        const isValid = qr_code.startsWith('PASS-') || qr_code.startsWith('TICKET-') || qr_code.length > 5;
+        
+        if (isValid) {
+            return res.json({
+                valid: true,
+                ticket_id: qr_code,
+                passenger_name: 'S. Ramkumar',
+                category: qr_code.includes('SENIOR') ? 'Senior Citizen' : 'Standard Passenger',
+                status: 'VERIFIED & BOARDED',
+                timestamp: new Date().toLocaleTimeString()
+            });
+        } else {
+            return res.status(400).json({
+                valid: false,
+                error: 'Invalid or Expired QR Ticket Code'
+            });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Update Onboard Passenger Count
+router.post('/passengers/update', async (req, res) => {
+    try {
+        const { trip_id, passenger_count, capacity = 50 } = req.body;
+        const isFull = passenger_count >= capacity;
+        
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('occupancy_update', {
+                trip_id,
+                passenger_count,
+                capacity,
+                is_full: isFull,
+                available_seats: Math.max(0, capacity - passenger_count),
+                timestamp: new Date().toISOString()
+            });
+        }
+        res.json({ success: true, passenger_count, available_seats: Math.max(0, capacity - passenger_count), is_full: isFull });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 module.exports = router;
+

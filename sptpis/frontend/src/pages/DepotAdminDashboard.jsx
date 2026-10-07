@@ -3,12 +3,12 @@ import axios from 'axios';
 import {
     Building, Bus, Users, Activity, Wrench, AlertTriangle,
     MapPin, CheckCircle2, History, MessageSquare, Briefcase,
-    Navigation, CalendarClock, PhoneCall
+    Navigation, CalendarClock, PhoneCall, Bell, X, CheckCircle
 } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 
-const SidebarItem = ({ icon: Icon, label, active, onClick, hasSubItems }) => (
+const SidebarItem = ({ icon: Icon, label, active, onClick, hasSubItems, badgeCount }) => (
     <button
         onClick={onClick}
         className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${active
@@ -18,6 +18,9 @@ const SidebarItem = ({ icon: Icon, label, active, onClick, hasSubItems }) => (
     >
         <Icon className="w-4 h-4" />
         <span className="flex-1 text-left">{label}</span>
+        {badgeCount > 0 && (
+            <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">{badgeCount}</span>
+        )}
         {hasSubItems && <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Tab</span>}
     </button>
 );
@@ -27,7 +30,7 @@ const DepotAdminDashboard = () => {
     const [activeMenu, setActiveMenu] = useState('overview');
     const [dashboardData, setDashboardData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const { liveBuses } = useSocket();
+    const { liveBuses, socket } = useSocket();
 
     const [trips, setTrips] = useState([]);
     const [fleet, setFleet] = useState([]);
@@ -36,9 +39,62 @@ const DepotAdminDashboard = () => {
     const [incidents, setIncidents] = useState([]);
     const [complaints, setComplaints] = useState([]);
 
+    // Driver Garage Maintenance Real-time Tickets & Pop-up Notification
+    const [activePopupNotif, setActivePopupNotif] = useState(null);
+    const [driverGarageTickets, setDriverGarageTickets] = useState([]);
+
     useEffect(() => {
         fetchInitialData();
+        loadDriverGarageTickets();
+
+        // 1. Listen for custom window event dispatched when a driver submits a garage query
+        const handleNewGarageTicket = (e) => {
+            const ticket = e.detail;
+            if (ticket) {
+                setDriverGarageTickets(prev => [ticket, ...prev]);
+                setActivePopupNotif(ticket);
+            }
+        };
+
+        // 2. Listen for localStorage changes across browser tabs
+        const handleStorageChange = () => {
+            loadDriverGarageTickets();
+        };
+
+        window.addEventListener('sptpis_new_garage_ticket', handleNewGarageTicket);
+        window.addEventListener('storage', handleStorageChange);
+
+        return () => {
+            window.removeEventListener('sptpis_new_garage_ticket', handleNewGarageTicket);
+            window.removeEventListener('storage', handleStorageChange);
+        };
     }, []);
+
+    const loadDriverGarageTickets = () => {
+        try {
+            const stored = localStorage.getItem('sptpis_garage_tickets');
+            if (stored) {
+                setDriverGarageTickets(JSON.parse(stored));
+            } else {
+                // Initial Default Driver Garage Tickets
+                const initial = [
+                    { id: 'MNT-1042', issue: 'Front door pneumatic seal check & air leak', driver_name: 'K. Murugan', driver_id: 'TNSTC-DRV-8821', bus: 'TN-33-N-1122', severity: 'High', status: 'In Progress', mechanic: 'R. Periasamy', time: '10:15 AM', date: 'Today' },
+                    { id: 'MNT-1018', issue: 'Clutch pedal stiffness & oil level low', driver_name: 'S. Rajan', driver_id: 'TNSTC-DRV-4412', bus: 'TN-33-N-0988', severity: 'Critical', status: 'Open', mechanic: 'Unassigned', time: '08:40 AM', date: 'Today' },
+                    { id: 'MNT-0994', issue: 'Headlight low-beam bulb replacement', driver_name: 'V. Sundaram', driver_id: 'TNSTC-DRV-1102', bus: 'TN-33-N-1455', severity: 'Medium', status: 'Resolved', mechanic: 'M. Arumugam', time: 'Yesterday', date: 'Yesterday' }
+                ];
+                setDriverGarageTickets(initial);
+                localStorage.setItem('sptpis_garage_tickets', JSON.stringify(initial));
+            }
+        } catch (e) {}
+    };
+
+    const updateTicketStatus = (ticketId, newStatus, mechanicName) => {
+        setDriverGarageTickets(prev => {
+            const updated = prev.map(t => t.id === ticketId ? { ...t, status: newStatus, mechanic: mechanicName || t.mechanic || 'Assigned Mechanic' } : t);
+            localStorage.setItem('sptpis_garage_tickets', JSON.stringify(updated));
+            return updated;
+        });
+    };
 
     const fetchInitialData = async () => {
         try {
@@ -267,13 +323,133 @@ const DepotAdminDashboard = () => {
                     </div>
                 );
 
+            case 'driver_garage':
+                return (
+                    <div className="space-y-6">
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-2 border-b border-slate-800 pb-4">
+                            <div>
+                                <span className="bg-amber-500/20 text-amber-400 font-extrabold text-xs px-2.5 py-1 rounded border border-amber-500/30 uppercase tracking-widest">
+                                    REAL-TIME DRIVER QUERIES
+                                </span>
+                                <h2 className="text-2xl font-black text-white flex items-center gap-3 mt-2">
+                                    <Wrench className="w-7 h-7 text-amber-400" /> Driver Garage Maintenance & Flaws Column
+                                </h2>
+                                <p className="text-xs text-slate-400 mt-1 font-mono">Live queries & mechanical flaw requests submitted directly by TNSTC drivers.</p>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs font-mono text-slate-400">Total Queries: <strong className="text-white">{driverGarageTickets.length}</strong></span>
+                                <button
+                                    onClick={loadDriverGarageTickets}
+                                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3.5 py-2 rounded-xl border border-slate-700 transition"
+                                >
+                                    Refresh List
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Top Metric Cards for Garage Column */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-5 shadow-lg">
+                                <span className="text-xs font-bold uppercase text-slate-400">Open Queries</span>
+                                <div className="text-3xl font-black text-amber-400 mt-1">
+                                    {driverGarageTickets.filter(t => t.status === 'Open').length}
+                                </div>
+                            </div>
+                            <div className="bg-slate-900 border border-blue-500/30 rounded-2xl p-5 shadow-lg">
+                                <span className="text-xs font-bold uppercase text-slate-400">In Progress (Mechanic Assigned)</span>
+                                <div className="text-3xl font-black text-blue-400 mt-1">
+                                    {driverGarageTickets.filter(t => t.status === 'In Progress').length}
+                                </div>
+                            </div>
+                            <div className="bg-slate-900 border border-emerald-500/30 rounded-2xl p-5 shadow-lg">
+                                <span className="text-xs font-bold uppercase text-slate-400">Resolved Flaws</span>
+                                <div className="text-3xl font-black text-emerald-400 mt-1">
+                                    {driverGarageTickets.filter(t => t.status === 'Resolved').length}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Dedicated Driver Maintenance Table Column */}
+                        <DataTable
+                            columns={['Ticket ID', 'Bus Reg.', 'Driver Info', 'Mechanical Flaw / Query', 'Severity', 'Time / Date', 'Status', 'Depot Action']}
+                            data={driverGarageTickets.map(t => [
+                                <strong className="font-mono text-amber-400 text-xs">{t.id}</strong>,
+                                <span className="font-mono bg-slate-950 px-2 py-1 rounded border border-slate-800 text-xs font-bold text-white">{t.bus}</span>,
+                                <div>
+                                    <div className="font-bold text-white text-xs">{t.driver_name}</div>
+                                    <div className="text-[10px] font-mono text-slate-400">{t.driver_id}</div>
+                                </div>,
+                                <div className="max-w-xs text-xs text-slate-200 font-medium">{t.issue}</div>,
+                                <StatusBadge status={t.severity || 'High'} />,
+                                <span className="text-xs text-slate-400 font-mono">{t.time || t.date}</span>,
+                                <StatusBadge status={t.status} />,
+                                <div className="flex items-center gap-2">
+                                    {t.status === 'Open' && (
+                                        <button
+                                            onClick={() => updateTicketStatus(t.id, 'In Progress', 'R. Periasamy (Mechanic)')}
+                                            className="text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-md transition"
+                                        >
+                                            Assign Mechanic
+                                        </button>
+                                    )}
+                                    {t.status !== 'Resolved' && (
+                                        <button
+                                            onClick={() => updateTicketStatus(t.id, 'Resolved', t.mechanic)}
+                                            className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-md transition flex items-center gap-1"
+                                        >
+                                            <CheckCircle className="w-3.5 h-3.5" /> Mark Resolved
+                                        </button>
+                                    )}
+                                    {t.status === 'Resolved' && (
+                                        <span className="text-xs text-emerald-400 font-mono font-bold flex items-center gap-1">
+                                            <CheckCircle className="w-3.5 h-3.5" /> Closed
+                                        </span>
+                                    )}
+                                </div>
+                            ])}
+                        />
+                    </div>
+                );
+
             default:
                 return <div className="text-slate-400 h-full flex items-center justify-center border-2 border-dashed border-slate-800 rounded-xl bg-slate-900/50">Section Under Construction...</div>;
         }
     };
 
     return (
-        <div className="flex -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-64px)] bg-slate-950">
+        <div className="flex -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-64px)] bg-slate-950 relative">
+
+            {/* REAL-TIME POPUP TOAST NOTIFICATION WHEN DRIVER SUBMITS GARAGE TICKET */}
+            {activePopupNotif && (
+                <div className="fixed top-6 right-6 z-50 max-w-md bg-gradient-to-r from-amber-950 via-slate-900 to-slate-950 border-2 border-amber-500 rounded-2xl p-4 shadow-[0_10px_30px_rgba(245,158,11,0.3)] animate-bounce text-white">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400 flex items-center justify-center text-amber-400 font-bold shrink-0">
+                            <Wrench className="w-5 h-5 animate-pulse" />
+                        </div>
+                        <div className="flex-1">
+                            <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                                    NEW DRIVER GARAGE QUERY
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-400">{activePopupNotif.time}</span>
+                            </div>
+                            <h4 className="text-sm font-extrabold text-white mt-1.5">Bus {activePopupNotif.bus}: {activePopupNotif.issue}</h4>
+                            <p className="text-xs text-slate-300 mt-1 font-mono">Driver: <strong>{activePopupNotif.driver_name}</strong> ({activePopupNotif.driver_id})</p>
+
+                            <button
+                                onClick={() => { setActiveMenu('driver_garage'); setActivePopupNotif(null); }}
+                                className="mt-3 w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs px-4 py-2 rounded-xl transition shadow-md flex items-center justify-center gap-2"
+                            >
+                                Open Driver Garage Column ➔
+                            </button>
+                        </div>
+                        <button onClick={() => setActivePopupNotif(null)} className="text-slate-400 hover:text-white p-1">
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Sidebar Navigation */}
             <aside className="w-64 bg-slate-900 border-r border-slate-800 flex-shrink-0 flex flex-col pt-6 hidden md:flex overflow-y-auto">
@@ -292,11 +468,18 @@ const DepotAdminDashboard = () => {
                     <div className="text-xs font-extrabold uppercase tracking-widest text-slate-500 mb-2">Resources</div>
                     <SidebarItem icon={Bus} label="Fleet & Buses" active={activeMenu === 'fleet'} onClick={() => loadTabData('fleet')} />
                     <SidebarItem icon={Users} label="Drivers & Conductors" active={activeMenu === 'staff'} onClick={() => loadTabData('staff')} />
-                    <SidebarItem icon={Wrench} label="Maintenance" active={activeMenu === 'maintenance'} onClick={() => loadTabData('maintenance')} />
+                    <SidebarItem icon={Wrench} label="Maintenance Logs" active={activeMenu === 'maintenance'} onClick={() => loadTabData('maintenance')} />
                 </div>
 
                 <div className="px-6 mb-4">
-                    <div className="text-xs font-extrabold uppercase tracking-widest text-slate-500 mb-2">Issue Tracking</div>
+                    <div className="text-xs font-extrabold uppercase tracking-widest text-slate-500 mb-2">Issue Tracking & Driver Side</div>
+                    <SidebarItem
+                        icon={Wrench}
+                        label="Driver Garage Tickets"
+                        active={activeMenu === 'driver_garage'}
+                        onClick={() => loadTabData('driver_garage')}
+                        badgeCount={driverGarageTickets.filter(t => t.status === 'Open').length}
+                    />
                     <SidebarItem icon={AlertTriangle} label="Incidents & Breakdowns" active={activeMenu === 'incidents'} onClick={() => loadTabData('incidents')} />
                     <SidebarItem icon={MessageSquare} label="Passenger Complaints" active={activeMenu === 'complaints'} onClick={() => loadTabData('complaints')} />
                 </div>
