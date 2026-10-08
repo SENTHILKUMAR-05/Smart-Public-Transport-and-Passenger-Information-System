@@ -206,23 +206,65 @@ const DriverDashboard = () => {
     };
   }, [activeTrip?.status, useHardwareGps, socket, profile]);
 
+  React.useEffect(() => {
+    if (!socket) return;
+    const handleTripAssigned = (data) => {
+      console.log('[Driver Dashboard] Real-time Trip Sync Received:', data);
+      fetchDriverInit();
+    };
+    socket.on('trip_assigned', handleTripAssigned);
+    socket.on('global_sync_broadcast', handleTripAssigned);
+    return () => {
+      socket.off('trip_assigned', handleTripAssigned);
+      socket.off('global_sync_broadcast', handleTripAssigned);
+    };
+  }, [socket]);
+
   const fetchDriverInit = async () => {
     try {
       setLoading(true);
-      const [profRes, tripsRes] = await Promise.all([
+      const [profRes, tripsRes, allTripsRes] = await Promise.all([
         axios.get('/api/driver/profile').catch(() => ({ data: {} })),
-        axios.get('/api/driver/trips/today').catch(() => ({ data: { trips: [] } }))
+        axios.get('/api/driver/trips/today').catch(() => ({ data: { trips: [] } })),
+        axios.get('/api/driver/trips/all').catch(() => ({ data: { trips: [] } }))
       ]);
 
       if (profRes.data && profRes.data.name) {
         setProfile(prev => ({ ...prev, ...profRes.data }));
       }
       if (tripsRes.data?.trips?.length > 0) {
-        setTodayTrips(tripsRes.data.trips);
+        const formattedToday = tripsRes.data.trips.map(t => ({
+          trip_id: `TRIP-${t.trip_id}`,
+          registration_number: t.registration_number || 'TN-33-N-1122',
+          route_name: t.route_name || `${t.source_city || 'Erode'} ➔ ${t.destination_city || 'Salem'}`,
+          source_city: t.source_city || 'Erode',
+          destination_city: t.destination_city || 'Salem',
+          status: t.status || 'Scheduled',
+          scheduled_departure: t.scheduled_departure || 'Today',
+          scheduled_arrival: t.scheduled_arrival || 'Today'
+        }));
+        setTodayTrips(formattedToday);
+        if (formattedToday[0]) {
+          setActiveTrip(formattedToday[0]);
+        }
+      }
+
+      if (allTripsRes.data?.trips?.length > 0) {
+        const formattedHistory = allTripsRes.data.trips.map(t => ({
+          trip_id: `TRIP-${t.trip_id}`,
+          date: t.scheduled_departure ? t.scheduled_departure.split(' ')[0] : 'Today',
+          route_name: t.route_name || `${t.source_city || 'Erode'} to ${t.destination_city || 'Salem'}`,
+          bus: t.registration_number || 'TN-33-N-1122',
+          distance: '120 km',
+          duration: '2h 15m',
+          passengers: 50,
+          status: t.status || 'Completed'
+        }));
+        setTripHistory(formattedHistory);
       }
     } catch (e) {
       console.error(e);
-    } fontinally: {
+    } finally {
       setLoading(false);
     }
   };

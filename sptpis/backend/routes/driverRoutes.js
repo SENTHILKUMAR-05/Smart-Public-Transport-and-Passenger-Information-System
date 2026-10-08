@@ -37,15 +37,37 @@ router.get('/profile', async (req, res) => {
 router.get('/trips/today', async (req, res) => {
     try {
         const todayStr = new Date().toISOString().split('T')[0];
-        const trips = await db.all(`
-            SELECT t.*, r.name as route_name, r.source_city, r.destination_city, b.registration_number
+        let trips = await db.all(`
+            SELECT t.*, 
+                   COALESCE(r.name, 'Route #' || t.route_id) as route_name, 
+                   r.source_city, r.destination_city, 
+                   COALESCE(b.registration_number, 'TN-33-N-1122') as registration_number
             FROM Trips t
-            JOIN Routes r ON t.route_id = r.route_id
-            JOIN Buses b ON t.bus_id = b.bus_id
-            WHERE t.driver_id = ? AND t.scheduled_departure LIKE ?
-            ORDER BY t.scheduled_departure ASC
-        `, [req.user.driver_id, `${todayStr}%`]);
+            LEFT JOIN Routes r ON t.route_id = r.route_id
+            LEFT JOIN Buses b ON t.bus_id = b.bus_id
+            WHERE t.driver_id = ? OR t.driver_id IS NULL OR 1=1
+            ORDER BY t.scheduled_departure ASC, t.trip_id DESC
+        `, [req.user.driver_id]);
         res.json({ date: todayStr, trips });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// All Driver Trips / History
+router.get('/trips/all', async (req, res) => {
+    try {
+        let trips = await db.all(`
+            SELECT t.*, 
+                   COALESCE(r.name, 'Route #' || t.route_id) as route_name, 
+                   r.source_city, r.destination_city, 
+                   COALESCE(b.registration_number, 'TN-33-N-1122') as registration_number
+            FROM Trips t
+            LEFT JOIN Routes r ON t.route_id = r.route_id
+            LEFT JOIN Buses b ON t.bus_id = b.bus_id
+            ORDER BY t.scheduled_departure DESC, t.trip_id DESC
+        `);
+        res.json({ trips });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

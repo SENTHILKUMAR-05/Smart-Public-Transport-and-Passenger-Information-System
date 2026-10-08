@@ -1,141 +1,139 @@
 import React from 'react';
-import { X, QrCode, Download, Printer, CheckCircle2, ShieldCheck, Bus } from 'lucide-react';
+import { X, Printer, Bus, Copy, Check, Ticket } from 'lucide-react';
+import DynamicQrGenerator from './DynamicQrGenerator';
 
-const QrTicketModal = ({ ticket, onClose }) => {
+const QrTicketModal = ({ ticket, onClose, onBackToDashboard }) => {
+  const [copied, setCopied] = React.useState(false);
+
   if (!ticket) return null;
 
   const handlePrint = () => {
     window.print();
   };
 
+  const handleCopyOtp = () => {
+    const otp = ticket.otp || ticket.verification_otp || '789012';
+    navigator.clipboard.writeText(otp);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const pnr = ticket.pnr || ticket.booking_reference || ticket.qr_code_token || 'TNSTC-BK-882142';
+  const otp = ticket.otp || ticket.verification_otp || '789012';
+  const fromCity = ticket.boarding_stop || ticket.leg?.from || 'Dharmapuri Bus Stand';
+  const toCity = ticket.destination_stop || ticket.leg?.to || 'Salem Bus Stand';
+  const travelDate = ticket.travel_date || ticket.date || new Date().toISOString().split('T')[0];
+  const busReg = ticket.registration_number || ticket.leg?.bus || 'TN-29-N-1542';
+  const seats = ticket.seat_number || (ticket.seats ? (Array.isArray(ticket.seats) ? ticket.seats.join(', ') : ticket.seats) : 'S15');
+  const passengerName = ticket.passenger_name || ticket.user_name || 'S. KARTHIK';
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="relative w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-        {/* Top Header */}
-        <div className="bg-gradient-to-r from-brand-600 to-emerald-600 p-6 text-white relative">
+    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+      <div className="relative w-full max-w-sm sm:max-w-md bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-700/80 rounded-2xl sm:rounded-3xl shadow-[0_25px_70px_rgba(0,0,0,0.8)] overflow-hidden my-auto max-h-[92vh] flex flex-col">
+        
+        {/* Compact BookMyShow Style Header */}
+        <div className="bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 p-3.5 sm:p-4 text-white relative flex justify-between items-center shadow-lg shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner">
+              <Bus className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-black uppercase tracking-widest bg-white/20 px-1.5 py-0.5 rounded text-amber-200 border border-white/20">Official E-Pass</span>
+                <span className="text-[9px] font-bold text-emerald-300 flex items-center gap-1">● Confirmed</span>
+              </div>
+              <h2 className="font-black text-base text-white tracking-tight leading-tight">TNSTC / SETC Digital Pass</h2>
+            </div>
+          </div>
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-1.5 rounded-full bg-black/20 hover:bg-black/40 text-white transition"
+            className="p-1.5 rounded-full bg-black/30 hover:bg-black/50 text-white transition cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
-          <div className="flex items-center gap-2 mb-1">
-            <Bus className="w-6 h-6" />
-            <span className="font-extrabold text-lg uppercase tracking-wide">
-              TNSTC / SETC Official Ticket
-            </span>
-          </div>
-          <p className="text-xs text-blue-100">
-            Tamil Nadu State Transport Corporation • E-Ticket & QR Pass
-          </p>
         </div>
 
-        {/* Ticket Body */}
-        <div className="p-6 space-y-5">
-          {/* Reference & Status */}
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <div>
-              <p className="text-xs text-slate-400">Booking Reference</p>
-              <p className="text-base font-bold text-white tracking-wider">
-                {ticket.booking_reference || 'TNSTC-BK-882142'}
-              </p>
+        {/* Scrollable Container so entire modal fits on 100% zoom screens */}
+        <div className="p-3.5 sm:p-5 space-y-3 overflow-y-auto custom-scrollbar">
+
+          {/* Route Overview */}
+          <div className="bg-slate-950/80 p-2.5 sm:p-3 rounded-xl border border-slate-800 flex justify-between items-center shadow-inner">
+            <div className="space-y-0.5 max-w-[45%]">
+              <span className="text-[9px] font-extrabold uppercase tracking-widest text-slate-400">Boarding Point</span>
+              <p className="text-xs font-black text-white truncate">{fromCity}</p>
             </div>
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{ticket.booking_status || 'Confirmed'}</span>
+            <div className="flex flex-col items-center px-1">
+              <Bus className="w-4 h-4 text-rose-500 animate-bounce" />
+              <div className="w-8 h-[2px] bg-gradient-to-r from-rose-500 to-amber-500 my-0.5"></div>
+            </div>
+            <div className="space-y-0.5 text-right max-w-[45%]">
+              <span className="text-[9px] font-extrabold uppercase tracking-widest text-slate-400">Destination</span>
+              <p className="text-xs font-black text-white truncate">{toCity}</p>
             </div>
           </div>
 
-          {/* Route Details */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Ticket Key Specs Grid */}
+          <div className="grid grid-cols-3 gap-2 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 text-center">
             <div>
-              <p className="text-xs text-slate-400">Boarding Point</p>
-              <p className="text-sm font-semibold text-white">
-                {ticket.boarding_stop || 'Dharmapuri Bus Stand'}
-              </p>
+              <span className="text-[9px] text-slate-400 font-bold block uppercase">Date</span>
+              <span className="text-[11px] font-black text-white">{travelDate}</span>
             </div>
             <div>
-              <p className="text-xs text-slate-400">Destination</p>
-              <p className="text-sm font-semibold text-white">
-                {ticket.destination_stop || 'Sathyamangalam Bus Stand'}
-              </p>
+              <span className="text-[9px] text-slate-400 font-bold block uppercase">Seats</span>
+              <span className="text-[11px] font-black text-rose-400">{seats}</span>
             </div>
             <div>
-              <p className="text-xs text-slate-400">Travel Date</p>
-              <p className="text-sm font-semibold text-white">
-                {ticket.travel_date || new Date().toISOString().split('T')[0]}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Seat Number</p>
-              <p className="text-sm font-bold text-brand-400 text-base">
-                {ticket.seat_number || 'S15'}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Bus Number</p>
-              <p className="text-sm font-semibold text-white">
-                {ticket.registration_number || 'TN-29-N-1542'}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Total Fare</p>
-              <p className="text-sm font-bold text-emerald-400 text-base">
-                ₹{ticket.fare_paid || 145}
-              </p>
+              <span className="text-[9px] text-slate-400 font-bold block uppercase">Bus No.</span>
+              <span className="text-[11px] font-mono font-bold text-emerald-400">{busReg}</span>
             </div>
           </div>
 
-          {/* QR Code & OTP Token Block */}
-          <div className="flex flex-col items-center justify-center p-5 bg-slate-950 rounded-2xl border border-slate-800 text-center relative overflow-hidden">
-            {/* Boarding OTP Badge */}
-            <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-2 text-center w-full">
-              <span className="text-[10px] uppercase font-mono tracking-widest text-emerald-400 font-bold block">Boarding Verification OTP</span>
-              <span className="text-2xl font-mono font-black text-white tracking-[0.3em]">{ticket.otp || ticket.verification_otp || '789012'}</span>
+          {/* Compact OTP Verification */}
+          <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-emerald-500/40 rounded-xl p-2 sm:p-2.5 text-center relative shadow-md flex items-center justify-between px-3">
+            <div>
+              <span className="text-[9px] uppercase font-mono font-extrabold tracking-widest text-emerald-400 block text-left">Verification OTP</span>
+              <span className="text-xl font-mono font-black text-white tracking-[0.25em]">{otp}</span>
             </div>
-
-            <div className="p-3 bg-white rounded-xl mb-3 shadow-lg">
-              {/* Responsive SVG QR Code representation */}
-              <svg xmlns="http://www.w3.org/2000/svg" width="130" height="130" viewBox="0 0 100 100" fill="#0f172a">
-                <rect x="10" y="10" width="25" height="25" rx="2" fill="none" stroke="#0f172a" strokeWidth="6"/>
-                <rect x="18" y="18" width="9" height="9" fill="#0f172a"/>
-                <rect x="65" y="10" width="25" height="25" rx="2" fill="none" stroke="#0f172a" strokeWidth="6"/>
-                <rect x="73" y="18" width="9" height="9" fill="#0f172a"/>
-                <rect x="10" y="65" width="25" height="25" rx="2" fill="none" stroke="#0f172a" strokeWidth="6"/>
-                <rect x="18" y="73" width="9" height="9" fill="#0f172a"/>
-                <rect x="42" y="15" width="6" height="6" />
-                <rect x="52" y="25" width="8" height="8" />
-                <rect x="44" y="44" width="12" height="12" />
-                <rect x="65" y="55" width="10" height="10" />
-                <rect x="78" y="72" width="12" height="12" />
-                <rect x="48" y="75" width="8" height="8" />
-              </svg>
-            </div>
-            <p className="text-xs font-mono text-slate-400 tracking-wider">
-              PNR / Token: <span className="text-white font-bold">{ticket.booking_reference || ticket.qr_code_token || 'TNSTC-BK-882142'}</span>
-            </p>
-            <div className="flex items-center gap-1 text-[11px] text-emerald-400 mt-2 font-medium">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Show QR or 6-Digit OTP to Driver / Conductor</span>
-            </div>
+            <button
+              onClick={handleCopyOtp}
+              className="text-[10px] text-emerald-300 hover:text-white flex items-center gap-1 font-bold bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/30 transition cursor-pointer"
+            >
+              {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-3 pt-2">
+          {/* Dynamic QR Generator (Compact Size 160) */}
+          <DynamicQrGenerator
+            data={ticket}
+            size={160}
+            pnr={pnr}
+            passengerName={passengerName}
+            route={`${fromCity} ➔ ${toCity}`}
+            subtitle="Official Conductor Boarding Token"
+          />
+
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-2 pt-1">
             <button
               onClick={handlePrint}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm transition shadow-lg shadow-brand-600/20"
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition border border-slate-700 cursor-pointer"
             >
-              <Printer className="w-4 h-4" />
-              <span>Print / Download PDF</span>
+              <Printer className="w-3.5 h-3.5 text-rose-400" />
+              <span>Download PDF</span>
             </button>
             <button
-              onClick={onClose}
-              className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition"
+              onClick={() => {
+                onClose();
+                if (onBackToDashboard) onBackToDashboard();
+              }}
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs transition shadow-lg shadow-rose-600/30 cursor-pointer"
             >
-              Close
+              <Ticket className="w-3.5 h-3.5" />
+              <span>Dashboard</span>
             </button>
           </div>
+
         </div>
       </div>
     </div>

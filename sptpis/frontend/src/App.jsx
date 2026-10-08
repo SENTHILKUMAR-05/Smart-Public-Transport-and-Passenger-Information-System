@@ -61,8 +61,8 @@ const AppContent = () => {
       {/* Smart City Footer */}
       <Footer setActiveTab={setActiveTab} />
 
-      {/* Floating AI Chat Assistant (On every page as requested) */}
-      <ChatbotModal />
+      {/* Floating AI Chat Assistant (Customer side only) */}
+      {activeTab === 'passenger' && <ChatbotModal />}
 
       {/* Slide-over Notifications Drawer */}
       <NotificationDrawer

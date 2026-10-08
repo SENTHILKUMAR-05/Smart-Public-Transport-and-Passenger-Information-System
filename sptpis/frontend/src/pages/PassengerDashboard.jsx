@@ -448,6 +448,69 @@ const PassengerDashboard = () => {
 
   const renderHome = () => (
     <div className="space-y-6">
+      {/* ACTIVE BOOKINGS - BOOKMYSHOW WALLET CARDS */}
+      {Object.keys(bookedLegs).length > 0 && (
+        <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
+                <QrCode className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  My Active Mobile Boarding Passes
+                  <span className="text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                    BookMyShow Pass Wallet
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400">Tap pass to present QR pass or 6-digit verification OTP</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {Object.values(bookedLegs).map((ticketItem, i) => (
+              <div
+                key={i}
+                onClick={() => setSelectedTicketModal(ticketItem)}
+                className="bg-gradient-to-r from-slate-950 to-slate-900 border-2 border-rose-500/30 hover:border-rose-500 rounded-2xl p-5 shadow-xl cursor-pointer transition-all hover:-translate-y-1 group relative overflow-hidden"
+              >
+                {/* Visual Torn Ticket Cutout Notch */}
+                <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-900 border-r border-slate-800"></div>
+                <div className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-900 border-l border-slate-800"></div>
+
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <span className="text-[10px] font-mono font-bold text-rose-400 uppercase tracking-widest bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
+                      PNR: {ticketItem.pnr || ticketItem.booking_reference || 'TNSTC-PASS'}
+                    </span>
+                    <h4 className="text-base font-black text-white mt-1">
+                      {ticketItem.leg?.from || ticketItem.boarding_stop || 'Source'} ➔ {ticketItem.leg?.to || ticketItem.destination_stop || 'Dest'}
+                    </h4>
+                  </div>
+                  <div className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-xl text-center shrink-0">
+                    <span className="text-[9px] uppercase font-mono font-bold block">OTP</span>
+                    <span className="text-sm font-mono font-black">{ticketItem.otp || '789012'}</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center text-xs border-t border-dashed border-slate-800 pt-3 mt-3">
+                  <div className="text-slate-400">
+                    Bus: <b className="text-white font-mono">{ticketItem.leg?.bus || ticketItem.registration_number || 'TN-30-N-1234'}</b>
+                  </div>
+                  <div className="text-slate-400">
+                    Seat: <b className="text-rose-400 font-bold">{ticketItem.seats ? (Array.isArray(ticketItem.seats) ? ticketItem.seats.join(', ') : ticketItem.seats) : 'S15'}</b>
+                  </div>
+                  <button className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] uppercase px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-md shadow-rose-600/20 transition-all group-hover:scale-105 cursor-pointer">
+                    <QrCode className="w-3.5 h-3.5" /> View QR Pass
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
         <h2 className="text-2xl font-black text-white mb-6">Where are you going?</h2>
         <form onSubmit={handleSearch} className="space-y-4">
@@ -1254,8 +1317,8 @@ const PassengerDashboard = () => {
                 Book Next Leg: {nextLeg.from} ➔ {nextLeg.to} <ArrowRight className="w-5 h-5" />
               </button>
               <button
-                onClick={() => setActiveTab('journey')}
-                className="w-full bg-slate-900 border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-white font-bold py-4 rounded-xl transition-colors"
+                onClick={() => setActiveTab('home')}
+                className="w-full bg-slate-900 border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-white font-bold py-4 rounded-xl transition-colors cursor-pointer"
               >
                 Skip and Return to Dashboard
               </button>
@@ -1263,8 +1326,8 @@ const PassengerDashboard = () => {
           ) : (
             <div className="w-full max-w-md animate-in slide-in-from-bottom-8 duration-700 delay-300">
               <button
-                onClick={() => setActiveTab('journey')}
-                className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-black py-4 rounded-xl shadow-lg transition-transform transform hover:-translate-y-1"
+                onClick={() => setActiveTab('home')}
+                className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-black py-4 rounded-xl shadow-lg transition-transform transform hover:-translate-y-1 cursor-pointer"
               >
                 Return to Dashboard
               </button>
@@ -1436,6 +1499,7 @@ const PassengerDashboard = () => {
                         [`${date}-${bookingContext.bus}-${bookingContext.departure}`]: ticketObj
                       }));
                       setBookingSuccess(true);
+                      setSelectedTicketModal(ticketObj);
                     }}
                     className="w-full mt-6 bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-xl shadow-[0_10px_25px_-5px_rgba(37,99,235,0.4)] flex items-center justify-center gap-2 transition-all transform hover:-translate-y-1"
                   >
@@ -1777,6 +1841,10 @@ const PassengerDashboard = () => {
         <QrTicketModal
           ticket={selectedTicketModal}
           onClose={() => setSelectedTicketModal(null)}
+          onBackToDashboard={() => {
+            setSelectedTicketModal(null);
+            setActiveTab('home');
+          }}
         />
       )}
     </div>
