@@ -32,12 +32,124 @@ const DepotAdminDashboard = () => {
     const [loading, setLoading] = useState(true);
     const { liveBuses, socket } = useSocket();
 
-    const [trips, setTrips] = useState([]);
     const [fleet, setFleet] = useState([]);
     const [staff, setStaff] = useState([]);
+    const [trips, setTrips] = useState([]);
+    const [tripsDate, setTripsDate] = useState(new Date().toISOString().split('T')[0]); // Default to today
     const [maintenance, setMaintenance] = useState([]);
     const [incidents, setIncidents] = useState([]);
     const [complaints, setComplaints] = useState([]);
+
+    const [assignmentForm, setAssignmentForm] = useState({
+        trip_id: null,
+        route_id: '',
+        date: '',
+        time: '',
+        bus_id: '',
+        driver_id: '',
+        conductor_id: ''
+    });
+    const [availableForAssign, setAvailableForAssign] = useState({ routes: [], buses: [], drivers: [], conductors: [] });
+
+    const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+    const [editingStaff, setEditingStaff] = useState(null);
+    const [staffForm, setStaffForm] = useState({ name: '', phone: '', employee_code: '', type: 'Driver', status: 'Active' });
+
+    const [isFleetModalOpen, setIsFleetModalOpen] = useState(false);
+    const [editingFleet, setEditingFleet] = useState(null);
+    const [fleetForm, setFleetForm] = useState({ registration_number: '', bus_type: 'Town Bus', total_seats: 54, gps_device_id: '', status: 'Active' });
+
+    const handleFleetSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            if (editingFleet) {
+                await axios.put(`/api/depot/buses/${editingFleet.bus_id}`, fleetForm);
+            } else {
+                await axios.post('/api/depot/buses', fleetForm);
+            }
+            setIsFleetModalOpen(false);
+            setEditingFleet(null);
+            loadTabData('fleet');
+        } catch (error) {
+            console.error('Error saving bus:', error);
+            const errMsg = error.response?.data?.error || error.message || 'Unknown error';
+            alert('Failed to save bus: ' + errMsg);
+        }
+    };
+
+    const handleFleetDelete = async (id) => {
+        if (!window.confirm('Are you sure you want to remove this bus?')) return;
+        try {
+            await axios.delete(`/api/depot/buses/${id}`);
+            loadTabData('fleet');
+        } catch (error) {
+            console.error('Error deleting bus:', error);
+            alert('Failed to delete bus');
+        }
+    };
+
+    const openFleetModal = (bus = null) => {
+        if (bus) {
+            setEditingFleet(bus);
+            setFleetForm({
+                registration_number: bus.registration_number || '',
+                bus_type: bus.bus_type || 'Town Bus',
+                total_seats: bus.total_seats || 54,
+                gps_device_id: bus.gps_device_id || '',
+                status: bus.status || 'Active'
+            });
+        } else {
+            setEditingFleet(null);
+            setFleetForm({ registration_number: '', bus_type: 'Town Bus', total_seats: 54, gps_device_id: '', status: 'Active' });
+        }
+        setIsFleetModalOpen(true);
+    };
+
+    const handleStaffSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            if (editingStaff) {
+                await axios.put(`/api/depot/staff/${editingStaff.id}`, staffForm);
+            } else {
+                await axios.post('/api/depot/staff', staffForm);
+            }
+            setIsStaffModalOpen(false);
+            setEditingStaff(null);
+            loadTabData('staff');
+        } catch (error) {
+            console.error('Error saving staff:', error);
+            const errMsg = error.response?.data?.error || error.message || 'Unknown error';
+            alert('Failed to save staff: ' + errMsg);
+        }
+    };
+
+    const handleStaffDelete = async (id, type) => {
+        if (!window.confirm(`Are you sure you want to remove this ${type}?`)) return;
+        try {
+            await axios.delete(`/api/depot/staff/${id}?type=${type}`);
+            loadTabData('staff');
+        } catch (error) {
+            console.error('Error deleting staff:', error);
+            alert('Failed to delete staff');
+        }
+    };
+
+    const openStaffModal = (staffMember = null) => {
+        if (staffMember) {
+            setEditingStaff(staffMember);
+            setStaffForm({
+                name: staffMember.name || '',
+                phone: staffMember.phone || '',
+                employee_code: staffMember.employee_code || '',
+                type: staffMember.type || 'Driver',
+                status: staffMember.status || 'Active'
+            });
+        } else {
+            setEditingStaff(null);
+            setStaffForm({ name: '', phone: '', employee_code: '', type: 'Driver', status: 'Active' });
+        }
+        setIsStaffModalOpen(true);
+    };
 
     // Driver Garage Maintenance Real-time Tickets & Pop-up Notification
     const [activePopupNotif, setActivePopupNotif] = useState(null);
@@ -85,7 +197,7 @@ const DepotAdminDashboard = () => {
                 setDriverGarageTickets(initial);
                 localStorage.setItem('sptpis_garage_tickets', JSON.stringify(initial));
             }
-        } catch (e) {}
+        } catch (e) { }
     };
 
     const updateTicketStatus = (ticketId, newStatus, mechanicName) => {
@@ -112,7 +224,9 @@ const DepotAdminDashboard = () => {
         setActiveMenu(menu);
         try {
             if (menu === 'trips') {
-                const res = await axios.get('/api/depot/trips');
+                // Fetch trips specifically matching the chosen filter date, with cache burster
+                const ts = Date.now();
+                const res = await axios.get(`/api/depot/trips?date=${dateParam || tripsDate}&_t=${ts}`);
                 setTrips(res.data);
             } else if (menu === 'fleet') {
                 const res = await axios.get('/api/depot/buses');
@@ -129,11 +243,104 @@ const DepotAdminDashboard = () => {
             } else if (menu === 'complaints') {
                 const res = await axios.get('/api/depot/complaints');
                 setComplaints(res.data);
+            } else if (menu === 'assign') {
+                const routesRes = await axios.get('/api/depot/routes');
+                setAvailableForAssign(prev => ({ ...prev, routes: routesRes.data }));
+            } else if (menu === 'all-trips') {
+                const ts = Date.now();
+                const res = await axios.get(`/api/depot/all-trips?_t=${ts}`);
+                setTrips(res.data);
             }
         } catch (e) {
             console.error(e);
         }
     };
+
+    const handleAssignFormChange = async (field, value) => {
+        setAssignmentForm(prev => {
+            const nextForm = { ...prev, [field]: value };
+            if ((field === 'date' || field === 'time') && nextForm.date && nextForm.time) {
+                // Fetch available resources when date/time are set
+                axios.get(`/api/depot/available-resources?date=${nextForm.date}&time=${nextForm.time}`).then(res => {
+                    setAvailableForAssign(p => ({
+                        ...p,
+                        buses: res.data.buses,
+                        drivers: res.data.drivers,
+                        conductors: res.data.conductors
+                    }));
+                }).catch(console.error);
+            }
+            return nextForm;
+        });
+    };
+
+    const handleAssignSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            if (assignmentForm.trip_id) {
+                await axios.put(`/api/depot/trips/${assignmentForm.trip_id}`, assignmentForm);
+                alert('Trip modified successfully!');
+            } else {
+                await axios.post('/api/depot/assign-trip', assignmentForm);
+                alert('Trip assigned successfully!');
+            }
+
+            const assignedDate = assignmentForm.date;
+            setAssignmentForm({ trip_id: null, route_id: '', date: '', time: '', bus_id: '', driver_id: '', conductor_id: '' });
+
+            // UX Polish: Instantly set Trips Date filter to the newly assigned date and load it.
+            setTripsDate(assignedDate);
+            loadTabData('trips', assignedDate);
+        } catch (error) {
+            alert('Failed to save trip: ' + (error.response?.data?.error || error.message));
+        }
+    };
+
+    const handleTripDelete = async (id) => {
+        if (!window.confirm('Are you sure you want to completely delete this assigned trip?')) return;
+        try {
+            await axios.delete(`/api/depot/trips/${id}`);
+            if (activeMenu === 'all-trips') loadTabData('all-trips');
+            else loadTabData('trips', tripsDate);
+        } catch (error) {
+            alert('Failed to delete trip.');
+        }
+    };
+
+    const openModifyTrip = async (t) => {
+        const datetime = t.scheduled_departure || "2026-01-01 10:00";
+        const dateStr = datetime.split(' ')[0];
+        const timeStr = datetime.split(' ')[1] || "00:00";
+
+        setAssignmentForm({
+            trip_id: t.trip_id,
+            route_id: t.route_id,
+            date: dateStr,
+            time: timeStr,
+            bus_id: t.bus_id,
+            driver_id: t.driver_id,
+            conductor_id: t.conductor_id
+        });
+
+        await loadTabData('assign');
+        // Instantly manually trigger available resources so dropdowns are populated
+        try {
+            const res = await axios.get(`/api/depot/available-resources?date=${dateStr}&time=${timeStr}`);
+            setAvailableForAssign(p => ({
+                ...p,
+                buses: res.data.buses,
+                drivers: res.data.drivers,
+                conductors: res.data.conductors
+            }));
+        } catch (e) { console.error(e); }
+    };
+
+    // Keep trips live-updated if users change the date filter
+    useEffect(() => {
+        if (activeMenu === 'trips') {
+            loadTabData('trips', tripsDate);
+        }
+    }, [tripsDate]);
 
     const renderContent = () => {
         if (loading) {
@@ -190,9 +397,106 @@ const DepotAdminDashboard = () => {
 
                             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg">
                                 <h3 className="font-bold text-sm text-slate-400 uppercase tracking-wider mb-4 border-b border-slate-800 pb-2">Quick Assignment</h3>
-                                <p className="text-xs text-slate-400 mb-4">Launch assignment terminal for trips missing resources.</p>
-                                <button onClick={() => loadTabData('trips')} className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold rounded transition">Assign Resources</button>
+                                <p className="text-xs text-slate-400 mb-4">Launch assignment terminal for missing resources.</p>
+                                <button onClick={() => loadTabData('assign')} className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-semibold rounded transition">Assign Resources</button>
                             </div>
+                        </div>
+                    </div>
+                );
+
+            case 'assign':
+                return (
+                    <div className="space-y-6">
+                        <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-2">
+                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                <Bus className="w-5 h-5 text-amber-400" /> {assignmentForm.trip_id ? 'Modify Trip Assignment' : 'Assign Bus & Crew'}
+                            </h2>
+                        </div>
+                        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl max-w-4xl mx-auto">
+                            <form onSubmit={handleAssignSubmit} className="space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Select Route</label>
+                                        <select
+                                            required value={assignmentForm.route_id} onChange={e => handleAssignFormChange('route_id', e.target.value)}
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500"
+                                        >
+                                            <option value="">-- Choose Route --</option>
+                                            {availableForAssign.routes.map(r => (
+                                                <option key={r.route_id} value={r.route_id}>{r.route_code} : {r.source_city} To {r.destination_city}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="flex gap-4">
+                                        <div className="w-1/2">
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Date</label>
+                                            <input
+                                                required type="date" value={assignmentForm.date} onChange={e => handleAssignFormChange('date', e.target.value)}
+                                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500"
+                                            />
+                                        </div>
+                                        <div className="w-1/2">
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Time</label>
+                                            <input
+                                                required type="time" value={assignmentForm.time} onChange={e => handleAssignFormChange('time', e.target.value)}
+                                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {assignmentForm.date && assignmentForm.time ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-800/50">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Available Bus</label>
+                                            <select
+                                                required value={assignmentForm.bus_id} onChange={e => handleAssignFormChange('bus_id', e.target.value)}
+                                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500"
+                                            >
+                                                <option value="">-- Select Bus --</option>
+                                                {availableForAssign.buses.map(b => (
+                                                    <option key={b.bus_id} value={b.bus_id}>{b.registration_number} ({b.bus_type})</option>
+                                                ))}
+                                            </select>
+                                            <p className="text-[10px] text-slate-500 mt-1">Excludes Maintenance & Assigned</p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Available Driver</label>
+                                            <select
+                                                required value={assignmentForm.driver_id} onChange={e => handleAssignFormChange('driver_id', e.target.value)}
+                                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500"
+                                            >
+                                                <option value="">-- Select Driver --</option>
+                                                {availableForAssign.drivers.map(d => (
+                                                    <option key={d.id} value={d.id}>{d.name} ({d.employee_code})</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Available Conductor</label>
+                                            <select
+                                                required value={assignmentForm.conductor_id} onChange={e => handleAssignFormChange('conductor_id', e.target.value)}
+                                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500"
+                                            >
+                                                <option value="">-- Select Conductor --</option>
+                                                {availableForAssign.conductors.map(c => (
+                                                    <option key={c.id} value={c.id}>{c.name} ({c.employee_code})</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bg-slate-950 border border-slate-800 rounded-xl p-8 text-center text-slate-500">
+                                        Please select a Date and Time to load available buses and staff.
+                                    </div>
+                                )}
+
+                                <div className="pt-4 flex justify-end">
+                                    <button type="submit" disabled={!assignmentForm.date || !assignmentForm.time} className={`px-8 py-3 rounded-lg font-black transition shadow-lg ${(!assignmentForm.date || !assignmentForm.time) ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-amber-500 text-slate-900 hover:bg-amber-400 shadow-amber-500/20'}`}>
+                                        Confirm Assignment
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 );
@@ -200,13 +504,22 @@ const DepotAdminDashboard = () => {
             case 'trips':
                 return (
                     <div className="space-y-4">
-                        <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-2">
+                        <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 border-b border-slate-800 pb-4 gap-4">
                             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                <Activity className="w-5 h-5 text-emerald-400" /> Today's Operations & Trips
+                                <Activity className="w-5 h-5 text-emerald-400" /> Operations Overview
                             </h2>
-                            <button className="bg-amber-600 hover:bg-amber-500 text-white text-xs px-4 py-2 rounded-lg transition font-bold shadow-md shadow-amber-500/20">+ Create Trip</button>
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filter Date:</span>
+                                <input
+                                    type="date"
+                                    value={tripsDate}
+                                    onChange={e => setTripsDate(e.target.value)}
+                                    className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white/90 text-sm focus:outline-none focus:border-emerald-500 transition"
+                                />
+                                <button onClick={() => loadTabData('assign')} className="bg-amber-600 hover:bg-amber-500 text-white text-xs px-4 py-2 rounded-lg transition font-bold shadow-md shadow-amber-500/20 ml-4">+ Assign Trip</button>
+                            </div>
                         </div>
-                        <p className="text-sm text-slate-400 mb-4">Assign buses, drivers, and conductors. Cancel or reschedule as needed.</p>
+                        <p className="text-sm text-slate-400 mb-4">Showing assigned trips and operations matching the date: <strong className="text-emerald-400">{tripsDate}</strong></p>
                         <DataTable
                             columns={['Trip ID', 'Route', 'Departure', 'Bus', 'Driver & Conductor', 'Delay', 'Status', 'Actions']}
                             data={trips.map(t => [
@@ -217,7 +530,39 @@ const DepotAdminDashboard = () => {
                                 (t.driver_name && t.conductor_name) ? `${t.driver_name} / ${t.conductor_name}` : <span className="text-rose-400 font-bold text-xs">UNASSIGNED</span>,
                                 <span className={t.delay_mins > 0 ? "text-rose-400 font-bold" : "text-emerald-400"}>{t.delay_mins} min</span>,
                                 <StatusBadge status={t.status} />,
-                                <button className="text-xs bg-slate-700/50 hover:bg-slate-700 px-2 py-1 flex items-center gap-1 rounded transition border border-slate-600"><Wrench className="w-3 h-3" /> Modify</button>
+                                <div className="flex gap-2">
+                                    <button onClick={() => openModifyTrip(t)} className="text-xs bg-slate-700/50 hover:bg-amber-600 px-2 py-1 flex items-center gap-1 rounded transition border border-slate-600 hover:border-amber-600 text-white"><Wrench className="w-3 h-3" /> Modify</button>
+                                    <button onClick={() => handleTripDelete(t.trip_id)} className="text-xs bg-slate-700/50 hover:bg-rose-600 px-2 py-1 flex items-center gap-1 rounded transition border border-slate-600 hover:border-rose-600 text-white cursor-pointer"><X className="w-3 h-3" /> Delete</button>
+                                </div>
+                            ])}
+                        />
+                    </div>
+                );
+
+            case 'all-trips':
+                return (
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-2">
+                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                <Navigation className="w-5 h-5 text-emerald-400" /> All Assigned Trips (Master Record)
+                            </h2>
+                            <button onClick={() => { setAssignmentForm({ trip_id: null, route_id: '', date: '', time: '', bus_id: '', driver_id: '', conductor_id: '' }); loadTabData('assign'); }} className="bg-amber-600 hover:bg-amber-500 text-white text-xs px-4 py-2 rounded-lg transition font-bold shadow-md shadow-amber-500/20">+ Assign Trip</button>
+                        </div>
+                        <p className="text-sm text-slate-400 mb-4">Master ledger of all assigned trips across all dates. Use the options to modify or remove mistakenly assigned schedules.</p>
+                        <DataTable
+                            columns={['Trip ID', 'Route', 'Full Date/Time', 'Bus', 'Driver & Conductor', 'Delay', 'Status', 'Actions']}
+                            data={trips.map(t => [
+                                '#' + t.trip_id,
+                                t.route_name,
+                                <span className="font-mono text-emerald-300">{t.scheduled_departure}</span>,
+                                t.registration_number ? <span className="font-mono bg-slate-800 px-1 py-0.5 rounded text-xs">{t.registration_number}</span> : <span className="text-rose-400 font-bold text-xs">UNASSIGNED</span>,
+                                (t.driver_name && t.conductor_name) ? `${t.driver_name} / ${t.conductor_name}` : <span className="text-rose-400 font-bold text-xs">UNASSIGNED</span>,
+                                <span className={t.delay_mins > 0 ? "text-rose-400 font-bold" : "text-emerald-400"}>{t.delay_mins} min</span>,
+                                <StatusBadge status={t.status} />,
+                                <div className="flex gap-2">
+                                    <button onClick={() => openModifyTrip(t)} className="text-xs bg-slate-700/50 hover:bg-amber-600 px-2 py-1 flex items-center gap-1 rounded transition border border-slate-600 hover:border-amber-600 text-white"><Wrench className="w-3 h-3" /> Modify</button>
+                                    <button onClick={() => handleTripDelete(t.trip_id)} className="text-xs bg-slate-700/50 hover:bg-rose-600 px-2 py-1 flex items-center gap-1 rounded transition border border-slate-600 hover:border-rose-600 text-white cursor-pointer"><X className="w-3 h-3" /> Delete</button>
+                                </div>
                             ])}
                         />
                     </div>
@@ -226,17 +571,24 @@ const DepotAdminDashboard = () => {
             case 'fleet':
                 return (
                     <div className="space-y-4">
-                        <h2 className="text-xl font-bold text-white mb-6 border-b border-slate-800 pb-2 flex items-center gap-2">
-                            <Bus className="w-5 h-5 text-blue-400" /> Depot Fleet Management
-                        </h2>
+                        <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-2">
+                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                <Bus className="w-5 h-5 text-blue-400" /> Depot Fleet Management
+                            </h2>
+                            <button onClick={() => openFleetModal()} className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-4 py-2 rounded-lg transition font-bold shadow-md">+ Add Bus</button>
+                        </div>
                         <DataTable
-                            columns={['Registration', 'Type', 'Capacity', 'GPS Device', 'Current Status']}
+                            columns={['Registration', 'Type', 'Capacity', 'GPS Device', 'Current Status', 'Actions']}
                             data={fleet.map(b => [
                                 <strong className="text-white font-mono">{b.registration_number}</strong>,
                                 b.bus_type,
                                 b.total_seats + ' Seats',
                                 b.gps_device_id || 'N/A',
-                                <StatusBadge status={b.status} />
+                                <StatusBadge status={b.status} />,
+                                <div className="flex gap-2">
+                                    <button onClick={() => openFleetModal(b)} className="text-xs bg-slate-700 hover:bg-amber-600 px-2 py-1 rounded transition text-white">Edit</button>
+                                    <button onClick={() => handleFleetDelete(b.bus_id)} className="text-xs bg-slate-700 hover:bg-rose-600 px-2 py-1 rounded transition text-white">Remove</button>
+                                </div>
                             ])}
                         />
                     </div>
@@ -245,17 +597,24 @@ const DepotAdminDashboard = () => {
             case 'staff':
                 return (
                     <div className="space-y-4">
-                        <h2 className="text-xl font-bold text-white mb-6 border-b border-slate-800 pb-2 flex items-center gap-2">
-                            <Users className="w-5 h-5 text-indigo-400" /> Depot Staff Management
-                        </h2>
+                        <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-2">
+                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                <Users className="w-5 h-5 text-indigo-400" /> Depot Staff Management
+                            </h2>
+                            <button onClick={() => openStaffModal()} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-4 py-2 rounded-lg transition font-bold shadow-md">+ Add Staff</button>
+                        </div>
                         <DataTable
-                            columns={['Employee Code', 'Role', 'Name', 'Phone', 'Status']}
+                            columns={['Employee Code', 'Role', 'Name', 'Phone', 'Status', 'Actions']}
                             data={staff.map(s => [
                                 <span className="font-mono text-slate-300">{s.employee_code}</span>,
                                 <span className={`text-xs font-bold px-2 py-1 rounded ${s.type === 'Driver' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}`}>{s.type}</span>,
                                 <strong className="text-white">{s.name}</strong>,
                                 s.phone,
-                                <StatusBadge status={s.status} />
+                                <StatusBadge status={s.status} />,
+                                <div className="flex gap-2">
+                                    <button onClick={() => openStaffModal(s)} className="text-xs bg-slate-700 hover:bg-amber-600 px-2 py-1 rounded transition text-white">Edit</button>
+                                    <button onClick={() => handleStaffDelete(s.id, s.type)} className="text-xs bg-slate-700 hover:bg-rose-600 px-2 py-1 rounded transition text-white">Remove</button>
+                                </div>
                             ])}
                         />
                     </div>
@@ -460,8 +819,9 @@ const DepotAdminDashboard = () => {
 
                 <div className="px-6 mb-4">
                     <div className="text-xs font-extrabold uppercase tracking-widest text-slate-500 mb-2">Daily Operations</div>
-                    <SidebarItem icon={Navigation} label="Today's Trips" active={activeMenu === 'trips'} onClick={() => loadTabData('trips')} />
-                    <SidebarItem icon={Bus} label="Assign Bus" active={activeMenu === 'assign'} onClick={() => { }} />
+                    <SidebarItem icon={Activity} label="Today's Trips" active={activeMenu === 'trips'} onClick={() => loadTabData('trips')} />
+                    <SidebarItem icon={Navigation} label="All Trips" active={activeMenu === 'all-trips'} onClick={() => loadTabData('all-trips')} />
+                    <SidebarItem icon={Bus} label="Assign Bus" active={activeMenu === 'assign'} onClick={() => { setAssignmentForm({ trip_id: null, route_id: '', date: '', time: '', bus_id: '', driver_id: '', conductor_id: '' }); loadTabData('assign'); }} />
                 </div>
 
                 <div className="px-6 mb-4">
@@ -490,6 +850,179 @@ const DepotAdminDashboard = () => {
                 {renderContent()}
             </main>
 
+            {/* Staff Modal */}
+            {isStaffModalOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+                        <div className="flex justify-between items-center p-5 border-b border-slate-800 bg-slate-800/50">
+                            <h3 className="text-white font-bold text-lg">{editingStaff ? 'Edit Staff Member' : 'Add New Staff'}</h3>
+                            <button onClick={() => setIsStaffModalOpen(false)} className="text-slate-400 hover:text-white transition"><X className="w-5 h-5" /></button>
+                        </div>
+                        <form onSubmit={handleStaffSubmit} className="p-5 space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Staff Role Type</label>
+                                <select
+                                    value={staffForm.type}
+                                    onChange={e => setStaffForm({
+                                        ...staffForm,
+                                        type: e.target.value,
+                                        status: e.target.value === 'Driver' ? 'Active' : 'Available'
+                                    })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                                    disabled={!!editingStaff}
+                                >
+                                    <option value="Driver">Driver</option>
+                                    <option value="Conductor">Conductor</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Full Name</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={staffForm.name}
+                                    onChange={e => setStaffForm({ ...staffForm, name: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                                    placeholder="Enter full name"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Phone Number</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={staffForm.phone}
+                                    onChange={e => setStaffForm({ ...staffForm, phone: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                                    placeholder="Enter 10 digit number"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Employee Code / License</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={staffForm.employee_code}
+                                    onChange={e => setStaffForm({ ...staffForm, employee_code: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                                    placeholder="e.g. TN-DRV-123"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
+                                <select
+                                    value={staffForm.status}
+                                    onChange={e => setStaffForm({ ...staffForm, status: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                                >
+                                    {staffForm.type === 'Driver' ? (
+                                        <>
+                                            <option value="Active">Active</option>
+                                            <option value="On-Route">On-Route</option>
+                                            <option value="Off-Duty">Off-Duty</option>
+                                            <option value="Emergency">Emergency</option>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <option value="Available">Available</option>
+                                            <option value="On-Route">On-Route</option>
+                                            <option value="Off-Duty">Off-Duty</option>
+                                        </>
+                                    )}
+                                </select>
+                            </div>
+
+                            <div className="pt-4 flex gap-3">
+                                <button type="button" onClick={() => setIsStaffModalOpen(false)} className="flex-1 py-2.5 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-700 transition">Cancel</button>
+                                <button type="submit" className="flex-1 py-2.5 bg-indigo-600 shadow-md shadow-indigo-600/30 text-white rounded-lg font-bold hover:bg-indigo-500 transition">Save Staff</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+            {/* Fleet Modal */}
+            {isFleetModalOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+                        <div className="flex justify-between items-center p-5 border-b border-slate-800 bg-slate-800/50">
+                            <h3 className="text-white font-bold text-lg">{editingFleet ? 'Edit Bus Details' : 'Add New Bus'}</h3>
+                            <button onClick={() => setIsFleetModalOpen(false)} className="text-slate-400 hover:text-white transition"><X className="w-5 h-5" /></button>
+                        </div>
+                        <form onSubmit={handleFleetSubmit} className="p-5 space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Registration Number</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={fleetForm.registration_number}
+                                    onChange={e => setFleetForm({ ...fleetForm, registration_number: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                                    placeholder="e.g. TN-33-N-1234"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Bus Type</label>
+                                <select
+                                    value={fleetForm.bus_type}
+                                    onChange={e => setFleetForm({ ...fleetForm, bus_type: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                                >
+                                    <option value="Town Bus">Town Bus</option>
+                                    <option value="Express">Express</option>
+                                    <option value="SETC Ultra Deluxe">SETC Ultra Deluxe</option>
+                                    <option value="AC Sleeper">AC Sleeper</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Seats Capacity</label>
+                                <input
+                                    type="number"
+                                    required
+                                    value={fleetForm.total_seats}
+                                    onChange={e => setFleetForm({ ...fleetForm, total_seats: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">GPS Device ID (Optional)</label>
+                                <input
+                                    type="text"
+                                    value={fleetForm.gps_device_id}
+                                    onChange={e => setFleetForm({ ...fleetForm, gps_device_id: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                                    placeholder="e.g. GPS-9901"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
+                                <select
+                                    value={fleetForm.status}
+                                    onChange={e => setFleetForm({ ...fleetForm, status: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
+                                >
+                                    <option value="Active">Active</option>
+                                    <option value="Running">Running</option>
+                                    <option value="Maintenance">Maintenance</option>
+                                    <option value="Emergency">Emergency</option>
+                                </select>
+                            </div>
+
+                            <div className="pt-4 flex gap-3">
+                                <button type="button" onClick={() => setIsFleetModalOpen(false)} className="flex-1 py-2.5 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-700 transition">Cancel</button>
+                                <button type="submit" className="flex-1 py-2.5 bg-blue-600 shadow-md shadow-blue-600/30 text-white rounded-lg font-bold hover:bg-blue-500 transition">Save Bus</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

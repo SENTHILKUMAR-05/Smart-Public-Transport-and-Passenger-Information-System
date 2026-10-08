@@ -14,6 +14,13 @@ export const AuthProvider = ({ children }) => {
 
   const [token, setToken] = useState(() => localStorage.getItem('tnstc_token') || 'demo-jwt-token');
 
+  // Ensure axios defaults are hydrated on boot if token exists
+  useEffect(() => {
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+  }, [token]);
+
   const saveAuth = (userData, tokenStr) => {
     setUser(userData);
     setToken(tokenStr);
