@@ -5,7 +5,7 @@ import {
     Building, Bus, Users, Activity, BarChart3, AlertTriangle,
     MapPin, CheckCircle2, Navigation, MessageSquare, ListRestart,
     Clock, ShieldAlert, MonitorSpeaker, TrendingUp, TrendingDown,
-    Wrench, Star, ArrowRight, UserCog, UserCheck, Settings, X, Flame
+    Wrench, Star, ArrowRight, UserCog, UserCheck, Settings, X
 } from 'lucide-react';
 import FleetMap from '../components/Map/FleetMap';
 import { useSocket } from '../context/SocketContext';
@@ -59,7 +59,8 @@ const RegionalAdminDashboard = () => {
 
     const formatBusReg = (reg) => {
         if (!reg) return 'TN-38-N-1023';
-        return reg.startsWith('TN-') ? reg : `TN-${reg}`;
+        const strReg = String(reg);
+        return strReg.startsWith('TN-') ? strReg : `TN-${strReg}`;
     };
 
     const getTalukDepotName = (districtObj, idx) => {
@@ -233,13 +234,16 @@ const RegionalAdminDashboard = () => {
             if (menu === 'routes') {
                 try {
                     const res = await axios.get('/api/regional/routes');
-                    setRoutes(res.data);
+                    if (Array.isArray(res.data)) setRoutes(res.data);
                 } catch { setRoutes([]); }
             } else if (menu === 'incidents') {
                 try {
                     const res = await axios.get('/api/regional/incidents');
-                    if (res.data && res.data.length > 0) setIncidents(res.data);
-                    else throw new Error("mock fallback");
+                    if (Array.isArray(res.data) && res.data.length > 0) {
+                        setIncidents(res.data);
+                    } else {
+                        throw new Error("mock fallback");
+                    }
                 } catch {
                     setIncidents([
                         { incident_id: 'INC-REG-01', type: 'Panic Button Triggered', description: `Driver triggered silent panic alarm on Route originating from ${globalDistrict.name}.`, bus_id: 'TN-30-C-8822', severity: 'Critical', reported_time: new Date(Date.now() - 1200000).toISOString(), status: 'Dispatching Local Police' },
@@ -249,8 +253,11 @@ const RegionalAdminDashboard = () => {
             } else if (menu === 'complaints') {
                 try {
                     const res = await axios.get('/api/regional/complaints');
-                    if (res.data && res.data.length > 0) setComplaints(res.data);
-                    else throw new Error("mock fallback");
+                    if (Array.isArray(res.data) && res.data.length > 0) {
+                        setComplaints(res.data);
+                    } else {
+                         throw new Error("mock fallback");
+                    }
                 } catch {
                      setComplaints([
                         { complaint_id: 'RA-0921', category: 'Safety & Security', description: `Driver was speeding recklessly near the ${globalDistrict.name} school zone. Needs immediate warning.`, registration_number: 'TN-38-N-1023', severity: 'High', status: 'Pending Review', created_date: new Date(Date.now() - 3600000).toISOString() },
@@ -635,6 +642,7 @@ const RegionalAdminDashboard = () => {
             }
 
             case 'incidents':
+                const safeIncidents = Array.isArray(incidents) ? incidents : [];
                 return (
                     <div className="space-y-6 animate-in fade-in duration-300">
                         {/* Emergency Header */}
@@ -644,7 +652,7 @@ const RegionalAdminDashboard = () => {
                                     <span className="text-[10px] uppercase font-black tracking-widest bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded flex items-center gap-1">
                                         <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span> Live Radar Active
                                     </span>
-                                    <span className="text-xs text-slate-500 font-bold">• {globalDistrict.name} Command Center</span>
+                                    <span className="text-xs text-slate-500 font-bold">• {globalDistrict?.name || 'Regional'} Command Center</span>
                                 </div>
                                 <h2 className="text-2xl font-black text-rose-500 flex items-center gap-2 mt-1">
                                     <ShieldAlert className="w-6 h-6 text-rose-500" /> Emergency Incident Command Matrix
@@ -653,7 +661,7 @@ const RegionalAdminDashboard = () => {
                             </div>
 
                             <div className="bg-rose-950/40 border border-rose-500/30 px-4 py-2 rounded-2xl flex items-center gap-3">
-                                <Flame className="w-5 h-5 text-rose-500 animate-bounce" />
+                                <AlertTriangle className="w-5 h-5 text-rose-500 animate-bounce" />
                                 <div>
                                     <p className="text-[10px] font-black uppercase text-rose-400">Emergency Protocol</p>
                                     <p className="text-xs text-slate-300 font-bold">Active SLA Response: &lt; 5 mins</p>
@@ -666,18 +674,18 @@ const RegionalAdminDashboard = () => {
                             <div className="bg-gradient-to-r from-rose-950/40 to-slate-900 border border-rose-500/30 p-5 rounded-2xl flex items-center justify-between shadow-xl">
                                 <div>
                                     <p className="text-xs text-rose-400 uppercase font-black tracking-wider">Active Critical SOS</p>
-                                    <p className="text-3xl font-black text-white mt-1">{incidents.length}</p>
+                                    <p className="text-3xl font-black text-white mt-1">{safeIncidents.length}</p>
                                     <p className="text-[10px] text-slate-400 mt-1">Requiring immediate command response</p>
                                 </div>
                                 <div className="w-14 h-14 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
-                                    <Flame className="w-7 h-7 animate-pulse" />
+                                    <AlertTriangle className="w-7 h-7 animate-pulse" />
                                 </div>
                             </div>
 
                             <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between shadow-xl">
                                 <div>
                                     <p className="text-xs text-blue-400 uppercase font-black tracking-wider">Dispatched Patrol Units</p>
-                                    <p className="text-3xl font-black text-white mt-1">{incidents.filter(i => i.status === 'Unit Dispatched').length}</p>
+                                    <p className="text-3xl font-black text-white mt-1">{safeIncidents.filter(i => i?.status === 'Unit Dispatched').length}</p>
                                     <p className="text-[10px] text-slate-400 mt-1">En route to incident location</p>
                                 </div>
                                 <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
@@ -699,8 +707,8 @@ const RegionalAdminDashboard = () => {
 
                         {/* Incident Cards */}
                         <div className="grid gap-5">
-                            {incidents.map((inc, idx) => (
-                                <div key={inc.incident_id} className="bg-gradient-to-r from-rose-950/30 via-slate-900 to-slate-950 rounded-3xl p-6 shadow-2xl border border-rose-500/40 relative overflow-hidden group hover:border-rose-500/80 transition-all">
+                            {safeIncidents.map((inc, idx) => (
+                                <div key={inc?.incident_id || idx} className="bg-gradient-to-r from-rose-950/30 via-slate-900 to-slate-950 rounded-3xl p-6 shadow-2xl border border-rose-500/40 relative overflow-hidden group hover:border-rose-500/80 transition-all">
                                      <div className="absolute top-0 right-0 w-64 h-64 bg-rose-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none group-hover:bg-rose-500/10 transition-colors"></div>
 
                                      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative z-10">
@@ -709,7 +717,7 @@ const RegionalAdminDashboard = () => {
                                               <div className="relative flex-shrink-0">
                                                   <div className="absolute inset-0 bg-rose-500 rounded-2xl blur-md animate-pulse opacity-60"></div>
                                                   <div className="w-16 h-16 bg-slate-950 rounded-2xl border-2 border-rose-500 flex flex-col items-center justify-center relative z-10 text-rose-500 shadow-xl">
-                                                      <Flame className="w-7 h-7 animate-bounce"/>
+                                                      <AlertTriangle className="w-7 h-7 animate-bounce"/>
                                                       <span className="text-[8px] font-black uppercase text-rose-400 mt-0.5">SOS</span>
                                                   </div>
                                               </div>
@@ -717,32 +725,32 @@ const RegionalAdminDashboard = () => {
                                               <div className="space-y-2">
                                                  <div className="flex flex-wrap items-center gap-2">
                                                      <h4 className="text-white font-bold text-lg flex items-center gap-2">
-                                                         {inc.type || `${inc.severity} Alert`}
+                                                         {inc?.type || `${inc?.severity || 'General'} Alert`}
                                                      </h4>
                                                      <span className={`text-[10px] uppercase font-black px-3 py-1 rounded-full border ${
-                                                         inc.status === 'Unit Dispatched' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40 shadow-md' :
-                                                         inc.status === 'Escalated to State Admin' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' :
+                                                         inc?.status === 'Unit Dispatched' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40 shadow-md' :
+                                                         inc?.status === 'Escalated to State Admin' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' :
                                                          'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
                                                      }`}>
-                                                         {inc.status || 'Active Alert'}
+                                                         {inc?.status || 'Active Alert'}
                                                      </span>
-                                                     <span className="text-xs font-mono text-slate-500">#{inc.incident_id}</span>
+                                                     <span className="text-xs font-mono text-slate-500">#{inc?.incident_id || 'UNK'}</span>
                                                  </div>
 
                                                  <p className="text-slate-200 text-sm font-medium bg-slate-950/70 p-3 rounded-xl border border-slate-800/90 leading-relaxed">
-                                                     "{inc.description}"
+                                                     "{inc?.description || 'No description provided.'}"
                                                  </p>
 
                                                  {/* Telemetry Strip */}
                                                  <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-400 pt-1">
                                                      <span className="flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-xl border border-slate-800 text-white">
-                                                         <Bus className="w-3.5 h-3.5 text-rose-400"/> Bus Reg: <strong>{formatBusReg(inc.bus_id)}</strong>
+                                                         <Bus className="w-3.5 h-3.5 text-rose-400"/> Bus Reg: <strong>{formatBusReg(inc?.bus_id)}</strong>
                                                      </span>
                                                      <span className="flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-xl border border-slate-800 text-slate-300">
                                                          <MapPin className="w-3.5 h-3.5 text-blue-400"/> Location: <strong>{getDynamicLocation(globalDistrict, idx)}</strong>
                                                      </span>
                                                      <span className="flex items-center gap-1.5 text-slate-400">
-                                                         <Clock className="w-3.5 h-3.5 text-amber-400"/> Reported: {new Date(inc.reported_time).toLocaleString()}
+                                                         <Clock className="w-3.5 h-3.5 text-amber-400"/> Reported: {inc?.reported_time ? new Date(inc.reported_time).toLocaleString() : 'N/A'}
                                                      </span>
                                                  </div>
                                               </div>
@@ -766,20 +774,20 @@ const RegionalAdminDashboard = () => {
                                                  }} 
                                                  className="bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition border border-slate-700 flex items-center justify-center gap-2 cursor-pointer hover:border-rose-500/50"
                                               >
-                                                 <Flame className="w-4 h-4 text-amber-400" /> Escalate to State Level
+                                                 <AlertTriangle className="w-4 h-4 text-amber-400" /> Escalate to State Level
                                               </button>
                                           </div>
                                      </div>
                                 </div>
                             ))}
 
-                             {incidents.length === 0 && (
+                             {safeIncidents.length === 0 && (
                                 <div className="text-center p-14 bg-slate-900/60 border border-slate-800 rounded-3xl shadow-xl">
                                     <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
                                         <CheckCircle2 className="w-8 h-8 text-emerald-500" />
                                     </div>
                                     <h3 className="text-xl font-black text-white mb-1">Zero Active Incidents</h3>
-                                    <p className="text-slate-400 text-sm max-w-md mx-auto">No emergency SOS signals or vehicle breakdowns reported across the {globalDistrict.name} region.</p>
+                                    <p className="text-slate-400 text-sm max-w-md mx-auto">No emergency SOS signals or vehicle breakdowns reported across the {globalDistrict?.name || 'Regional'} region.</p>
                                 </div>
                             )}
                         </div>
@@ -862,9 +870,9 @@ const RegionalAdminDashboard = () => {
     };
 
     return (
-        <div className="flex -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-64px)] bg-slate-950">
+        <div className="flex -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-64px)] bg-slate-950 relative pb-16 md:pb-0">
             {/* Sidebar Navigation */}
-            <aside className="w-72 bg-slate-900 border-r border-slate-800 flex-shrink-0 flex flex-col pt-6 hidden md:flex overflow-y-auto">
+            <aside className="w-72 bg-slate-900 border-r border-slate-800 flex-shrink-0 flex flex-col pt-6 hidden md:flex sticky top-0 h-[calc(100vh-64px)] overflow-y-auto shadow-2xl z-40">
                 <div className="px-4 mb-6 relative z-10">
                     <div className="bg-blue-600/10 border border-blue-500/20 p-4 rounded-xl flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
@@ -897,6 +905,31 @@ const RegionalAdminDashboard = () => {
                     <SidebarItem icon={ShieldAlert} label="Emergency Incidents" active={activeMenu === 'incidents'} onClick={() => loadTabData('incidents')} badge={incidents.length > 0 ? incidents.length : null} />
                 </div>
             </aside>
+            
+            {/* Mobile Nav Bar */}
+            <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 flex justify-around items-center h-16 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+                <button onClick={() => loadTabData('overview')} className={`p-2 flex flex-col items-center flex-1 ${activeMenu === 'overview' ? 'text-blue-500' : 'text-slate-400'}`}>
+                    <Activity className="w-5 h-5"/>
+                    <span className="text-[10px] mt-1 font-bold uppercase">Map</span>
+                </button>
+                <button onClick={() => loadTabData('depots')} className={`p-2 flex flex-col items-center flex-1 ${activeMenu === 'depots' ? 'text-blue-500' : 'text-slate-400'}`}>
+                    <Building className="w-5 h-5"/>
+                    <span className="text-[10px] mt-1 font-bold uppercase">Depots</span>
+                </button>
+                <button onClick={() => loadTabData('revenue_insights')} className={`p-2 flex flex-col items-center flex-1 ${activeMenu === 'revenue_insights' ? 'text-blue-500' : 'text-slate-400'}`}>
+                    <TrendingUp className="w-5 h-5"/>
+                    <span className="text-[10px] mt-1 font-bold uppercase">Revenue</span>
+                </button>
+                <button onClick={() => loadTabData('complaints')} className={`p-2 flex flex-col items-center flex-1 ${activeMenu === 'complaints' ? 'text-blue-500' : 'text-slate-400'}`}>
+                    <MessageSquare className="w-5 h-5"/>
+                    <span className="text-[10px] mt-1 font-bold uppercase">Feedback</span>
+                </button>
+                <button onClick={() => loadTabData('incidents')} className={`p-2 flex flex-col items-center flex-1 ${activeMenu === 'incidents' ? 'text-rose-500' : 'text-slate-400'} relative`}>
+                    <ShieldAlert className="w-5 h-5"/>
+                    <span className="text-[10px] mt-1 font-bold uppercase">Alerts</span>
+                    {incidents.length > 0 && <span className="absolute top-1 right-[20%] w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-slate-900 shadow-[0_0_8px_rgba(244,63,94,0.8)] animate-pulse"></span>}
+                </button>
+            </nav>
 
             {/* Main Content Area */}
             <main className="flex-1 p-8 overflow-y-auto w-full relative">
@@ -922,7 +955,7 @@ const RegionalAdminDashboard = () => {
                                     {activeModal.type === 'route' && <Building className="w-5 h-5 text-blue-500" />}
                                     {activeModal.type === 'direct' && <UserCheck className="w-5 h-5 text-emerald-500" />}
                                     {activeModal.type === 'dispatch' && <ShieldAlert className="w-5 h-5 text-rose-500" />}
-                                    {activeModal.type === 'escalate' && <Flame className="w-5 h-5 text-amber-500" />}
+                                    {activeModal.type === 'escalate' && <AlertTriangle className="w-5 h-5 text-amber-500" />}
                                     
                                     {activeModal.type === 'route' && `Route Ticket #${activeModal.item.complaint_id} to Depot`}
                                     {activeModal.type === 'direct' && `Direct Action for Ticket #${activeModal.item.complaint_id}`}

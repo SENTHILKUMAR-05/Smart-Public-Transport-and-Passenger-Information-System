@@ -111,26 +111,93 @@ const PassengerDashboard = () => {
 
   const TN_CITIES = Array.from(new Set(rawCities)).sort();
 
+  const getLocalDateStr = (d = new Date()) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const normalizeDateStr = (dateVal) => {
+    if (!dateVal) return '';
+    const str = String(dateVal).trim();
+    const ymd = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (ymd) {
+      return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
+    }
+    const dmy = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    if (dmy) {
+      return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+    }
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+      return getLocalDateStr(parsed);
+    }
+    return str;
+  };
+
   const convert24hToMinutes = (time24) => {
     if (!time24) return 0;
     const [h, m] = time24.split(':').map(Number);
-    return (h * 60) + (m || 0);
+    return ((h || 0) * 60) + (m || 0);
   };
 
-  const convertAmPmToMinutes = (time12) => {
-    if (!time12) return 0;
-    const [timePart, modifier] = time12.split(' ');
+  const convertAmPmToMinutes = (timeStr) => {
+    if (!timeStr) return 0;
+    const clean = String(timeStr).trim();
+    if (!/am|pm/i.test(clean)) {
+      const [h, m] = clean.split(':').map(Number);
+      return ((h || 0) * 60) + (m || 0);
+    }
+    const parts = clean.split(/\s+/);
+    const timePart = parts[0] || '0:0';
+    const modifier = (parts[1] || '').toUpperCase();
     let [h, m] = timePart.split(':').map(Number);
+    h = h || 0;
+    m = m || 0;
     if (modifier === 'PM' && h < 12) h += 12;
     if (modifier === 'AM' && h === 12) h = 0;
-    return (h * 60) + (m || 0);
+    return (h * 60) + m;
   };
 
   const getCurrentTimeStr = () => {
     const d = new Date();
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
   };
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+
+  const isBookingCompleted = (b) => {
+    if (!b) return false;
+    if (b.booking_status === 'Completed' || b.booking_status === 'Finished') return true;
+
+    const rawDate = b.date || b.travel_date || b.leg?.date;
+    const ticketDate = normalizeDateStr(rawDate);
+    const todayStr = getLocalDateStr();
+
+    if (!ticketDate) return false;
+
+    // Past travel date is definitely completed
+    if (ticketDate < todayStr) return true;
+    // Future travel date is active
+    if (ticketDate > todayStr) return false;
+
+    // Same day: check arrival time or departure time against current local time
+    const currentMins = convert24hToMinutes(getCurrentTimeStr());
+    const arrivalTime = b.leg?.arrival || b.arrival || b.arrival_time;
+    const departureTime = b.leg?.departure || b.departure || b.departure_time;
+
+    if (arrivalTime) {
+      const arrMins = convertAmPmToMinutes(arrivalTime);
+      return arrMins <= currentMins;
+    }
+    if (departureTime) {
+      const depMins = convertAmPmToMinutes(departureTime);
+      return (depMins + 90) <= currentMins;
+    }
+
+    return false;
+  };
+
+  const [date, setDate] = useState(getLocalDateStr());
   const [time, setTime] = useState(getCurrentTimeStr());
   const [loading, setLoading] = useState(false);
   const [journeys, setJourneys] = useState([]);
@@ -153,26 +220,39 @@ const PassengerDashboard = () => {
       return {};
     }
   });
-  const [bookFilterDate, setBookFilterDate] = useState(new Date().toISOString().split('T')[0]);
+  const [bookFilterDate, setBookFilterDate] = useState('');
   const [bookFilterTime, setBookFilterTime] = useState('00:00');
   const [selectedTicketModal, setSelectedTicketModal] = useState(null);
+  const [, setClockTick] = useState(0);
+
+  // Periodic interval to keep active vs completed bookings dynamically refreshed
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setClockTick(prev => prev + 1);
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Sync bookedLegs to localStorage whenever updated
   useEffect(() => {
     try {
       localStorage.setItem('sptpis_valid_tickets_obj', JSON.stringify(bookedLegs));
       // Save array of valid tickets for Driver Scanner cross-read
-      const validArray = Object.values(bookedLegs).map(b => ({
-        pnr: b.pnr || b.booking_reference,
-        otp: b.otp,
-        qrToken: `QR-${b.pnr || b.otp}`,
-        bus: b.leg?.bus,
-        from: b.leg?.from,
-        to: b.leg?.to,
-        seats: b.seats,
-        date: b.date,
-        status: 'VALID'
-      }));
+      const validArray = Object.values(bookedLegs).map(b => {
+        const completed = isBookingCompleted(b);
+        return {
+          pnr: b.pnr || b.booking_reference,
+          otp: b.otp,
+          qrToken: `QR-${b.pnr || b.otp}`,
+          bus: b.leg?.bus || b.registration_number,
+          from: b.leg?.from || b.boarding_stop,
+          to: b.leg?.to || b.destination_stop,
+          seats: b.seats || b.seat_number,
+          date: b.date || b.travel_date,
+          status: completed ? 'COMPLETED' : 'VALID',
+          isCompleted: completed
+        };
+      });
       localStorage.setItem('sptpis_valid_tickets', JSON.stringify(validArray));
     } catch (e) { }
   }, [bookedLegs]);
@@ -452,68 +532,73 @@ const PassengerDashboard = () => {
 
   const renderHome = () => (
     <div className="space-y-6">
-      {/* ACTIVE BOOKINGS - BOOKMYSHOW WALLET CARDS */}
-      {Object.keys(bookedLegs).length > 0 && (
-        <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
-                <QrCode className="w-5 h-5 animate-pulse" />
-              </div>
-              <div>
-                <h3 className="text-lg font-black text-white flex items-center gap-2">
-                  My Active Mobile Boarding Passes
-                  <span className="text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                    BookMyShow Pass Wallet
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-400">Tap pass to present QR pass or 6-digit verification OTP</p>
+      {/* ACTIVE BOOKINGS - BOOKMYSHOW WALLET CARDS (Only show active / uncompleted tickets) */}
+      {(() => {
+        const activeTickets = Object.values(bookedLegs).filter(b => !isBookingCompleted(b));
+        if (activeTickets.length === 0) return null;
+
+        return (
+          <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden mb-6">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
+                  <QrCode className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white flex items-center gap-2">
+                    My Active Mobile Boarding Passes
+                    <span className="text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                      BookMyShow Pass Wallet
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">Tap pass to present QR pass or 6-digit verification OTP</p>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Object.values(bookedLegs).map((ticketItem, i) => (
-              <div
-                key={i}
-                onClick={() => setSelectedTicketModal(ticketItem)}
-                className="bg-gradient-to-r from-slate-950 to-slate-900 border-2 border-rose-500/30 hover:border-rose-500 rounded-2xl p-5 shadow-xl cursor-pointer transition-all hover:-translate-y-1 group relative overflow-hidden"
-              >
-                {/* Visual Torn Ticket Cutout Notch */}
-                <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-900 border-r border-slate-800"></div>
-                <div className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-900 border-l border-slate-800"></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {activeTickets.map((ticketItem, i) => (
+                <div
+                  key={i}
+                  onClick={() => setSelectedTicketModal(ticketItem)}
+                  className="bg-gradient-to-r from-slate-950 to-slate-900 border-2 border-rose-500/30 hover:border-rose-500 rounded-2xl p-5 shadow-xl cursor-pointer transition-all hover:-translate-y-1 group relative overflow-hidden"
+                >
+                  {/* Visual Torn Ticket Cutout Notch */}
+                  <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-900 border-r border-slate-800"></div>
+                  <div className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-900 border-l border-slate-800"></div>
 
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <span className="text-[10px] font-mono font-bold text-rose-400 uppercase tracking-widest bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
-                      PNR: {ticketItem.pnr || ticketItem.booking_reference || 'TNSTC-PASS'}
-                    </span>
-                    <h4 className="text-base font-black text-white mt-1">
-                      {ticketItem.leg?.from || ticketItem.boarding_stop || 'Source'} ➔ {ticketItem.leg?.to || ticketItem.destination_stop || 'Dest'}
-                    </h4>
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <span className="text-[10px] font-mono font-bold text-rose-400 uppercase tracking-widest bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
+                        PNR: {ticketItem.pnr || ticketItem.booking_reference || 'TNSTC-PASS'}
+                      </span>
+                      <h4 className="text-base font-black text-white mt-1">
+                        {ticketItem.leg?.from || ticketItem.boarding_stop || 'Source'} ➔ {ticketItem.leg?.to || ticketItem.destination_stop || 'Dest'}
+                      </h4>
+                    </div>
+                    <div className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-xl text-center shrink-0">
+                      <span className="text-[9px] uppercase font-mono font-bold block">OTP</span>
+                      <span className="text-sm font-mono font-black">{ticketItem.otp || '789012'}</span>
+                    </div>
                   </div>
-                  <div className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-xl text-center shrink-0">
-                    <span className="text-[9px] uppercase font-mono font-bold block">OTP</span>
-                    <span className="text-sm font-mono font-black">{ticketItem.otp || '789012'}</span>
+
+                  <div className="flex justify-between items-center text-xs border-t border-dashed border-slate-800 pt-3 mt-3">
+                    <div className="text-slate-400">
+                      Bus: <b className="text-white font-mono">{ticketItem.leg?.bus || ticketItem.registration_number || 'TN-30-N-1234'}</b>
+                    </div>
+                    <div className="text-slate-400">
+                      Seat: <b className="text-rose-400 font-bold">{ticketItem.seats ? (Array.isArray(ticketItem.seats) ? ticketItem.seats.join(', ') : ticketItem.seats) : 'S15'}</b>
+                    </div>
+                    <button className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] uppercase px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-md shadow-rose-600/20 transition-all group-hover:scale-105 cursor-pointer">
+                      <QrCode className="w-3.5 h-3.5" /> View QR Pass
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex justify-between items-center text-xs border-t border-dashed border-slate-800 pt-3 mt-3">
-                  <div className="text-slate-400">
-                    Bus: <b className="text-white font-mono">{ticketItem.leg?.bus || ticketItem.registration_number || 'TN-30-N-1234'}</b>
-                  </div>
-                  <div className="text-slate-400">
-                    Seat: <b className="text-rose-400 font-bold">{ticketItem.seats ? (Array.isArray(ticketItem.seats) ? ticketItem.seats.join(', ') : ticketItem.seats) : 'S15'}</b>
-                  </div>
-                  <button className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] uppercase px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-md shadow-rose-600/20 transition-all group-hover:scale-105 cursor-pointer">
-                    <QrCode className="w-3.5 h-3.5" /> View QR Pass
-                  </button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
         <h2 className="text-2xl font-black text-white mb-6">Where are you going?</h2>
@@ -700,7 +785,10 @@ const PassengerDashboard = () => {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold text-slate-300">{optimal.legs[0].service_type}</span>
                           {(() => {
-                            const bCount = optimal.legs.filter(leg => bookedLegs[`${date}-${leg.bus}-${leg.departure}`]).length;
+                            const bCount = optimal.legs.filter(leg => {
+                              const t = bookedLegs[`${date}-${leg.bus}-${leg.departure}`];
+                              return t && !isBookingCompleted(t);
+                            }).length;
                             if (bCount === 0) return null;
                             return (
                               <span className="text-[10px] uppercase font-black tracking-widest bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded shadow drop-shadow-md border border-emerald-500/30 flex items-center gap-1">
@@ -780,7 +868,9 @@ const PassengerDashboard = () => {
 
                         {optimal.legs.map((leg, index) => {
                           const nLeg = optimal.legs[index + 1] || null;
-                          const isBooked = bookedLegs[`${date}-${leg.bus}-${leg.departure}`];
+                          const existingBooking = bookedLegs[`${date}-${leg.bus}-${leg.departure}`];
+                          const isTripDone = existingBooking && isBookingCompleted(existingBooking);
+                          const isBooked = existingBooking && !isTripDone;
 
                           return (
                             <div key={index} className="flex gap-4 items-stretch relative z-10">
@@ -795,7 +885,7 @@ const PassengerDashboard = () => {
                                   setDestination(leg.to);
                                   handleSearch(null, leg.from, leg.to);
                                 }}
-                                className={`flex-1 p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:-translate-y-1 hover:shadow-lg cursor-pointer group ${isBooked ? 'bg-emerald-950/20 border-emerald-500/20 shadow-emerald-500/5' : 'bg-slate-950/80 border-slate-800 hover:border-brand-500 hover:shadow-brand-500/10'}`}
+                                className={`flex-1 p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:-translate-y-1 hover:shadow-lg cursor-pointer group ${isBooked ? 'bg-emerald-950/20 border-emerald-500/20 shadow-emerald-500/5' : isTripDone ? 'bg-slate-950/40 border-slate-800/80' : 'bg-slate-950/80 border-slate-800 hover:border-brand-500 hover:shadow-brand-500/10'}`}
                               >
                                 <div>
                                   <div className="font-bold text-white text-[15px] flex items-center gap-2">
@@ -805,7 +895,7 @@ const PassengerDashboard = () => {
                                     <Bus className="w-3 h-3 text-slate-500" /> {leg.bus} <span className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] uppercase font-bold">{leg.service_type}</span>
                                   </div>
                                   {(() => {
-                                    const userBooked = bookedLegs[`${date}-${leg.bus}-${leg.departure}`]?.seats.split(', ').length || 0;
+                                    const userBooked = (isBooked && existingBooking?.seats) ? existingBooking.seats.split(', ').length : 0;
                                     const booked = 8 + userBooked;
                                     return (
                                       <div className="flex gap-3 text-[10px] mt-2 bg-slate-900/50 inline-flex px-2 py-1 rounded border border-slate-800">
@@ -830,6 +920,10 @@ const PassengerDashboard = () => {
                                       <span className="text-[10px] uppercase font-black tracking-widest bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded shadow drop-shadow-md border border-emerald-500/30 flex items-center gap-1">
                                         <CheckCircle className="w-3 h-3" /> Booked
                                       </span>
+                                    ) : isTripDone ? (
+                                      <span className="text-[10px] uppercase font-black tracking-widest bg-slate-800 text-slate-400 px-3 py-1 rounded shadow drop-shadow-md border border-slate-700 flex items-center gap-1">
+                                        <CheckCircle className="w-3 h-3 text-emerald-400" /> Completed
+                                      </span>
                                     ) : (
                                       <button
                                         onClick={(e) => { setSelectedJourney(optimal); handleStartBooking(leg, nLeg, e); }}
@@ -842,7 +936,7 @@ const PassengerDashboard = () => {
                                 </div>
                               </div>
                             </div>
-                          )
+                          );
                         })}
                       </div>
                     </div>
@@ -869,7 +963,10 @@ const PassengerDashboard = () => {
                           {j.legs[0]?.service_type || 'Mixed Route'}
                         </span>
                         {(() => {
-                          const bCount = j.legs.filter(l => bookedLegs[`${date}-${l.bus}-${l.departure}`]).length;
+                          const bCount = j.legs.filter(l => {
+                            const t = bookedLegs[`${date}-${l.bus}-${l.departure}`];
+                            return t && !isBookingCompleted(t);
+                          }).length;
                           if (bCount === 0) return null;
                           return (
                             <span className="text-[10px] uppercase font-black tracking-widest bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded shadow drop-shadow-md border border-emerald-500/30 flex items-center gap-1">
@@ -955,15 +1052,31 @@ const PassengerDashboard = () => {
                   <button onClick={() => handleTrackBus(leg.from, leg.to)} className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold rounded flex items-center justify-center gap-2 transition text-sm">
                     <Activity className="w-4 h-4" /> TRACK LIVE
                   </button>
-                  {bookedLegs[`${date}-${leg.bus}-${leg.departure}`] ? (
-                    <div className="flex items-center justify-center gap-2 py-2 bg-emerald-900/40 text-emerald-400 font-bold rounded border border-emerald-500/30 shadow-inner text-sm">
-                      <CheckCircle className="w-4 h-4" /> BOOKED
-                    </div>
-                  ) : (
-                    <button onClick={() => handleStartBooking(leg, selectedJourney.legs[idx + 1] || null)} className="w-full py-2 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded flex items-center justify-center gap-2 transition text-sm hover:-translate-y-0.5 shadow-lg shadow-brand-500/30">
-                      <Armchair className="w-4 h-4" /> BOOK SEAT
-                    </button>
-                  )}
+                  {(() => {
+                    const ticket = bookedLegs[`${date}-${leg.bus}-${leg.departure}`];
+                    const isDone = ticket && isBookingCompleted(ticket);
+                    const isActiveBooked = ticket && !isDone;
+
+                    if (isActiveBooked) {
+                      return (
+                        <div className="flex items-center justify-center gap-2 py-2 bg-emerald-900/40 text-emerald-400 font-bold rounded border border-emerald-500/30 shadow-inner text-sm">
+                          <CheckCircle className="w-4 h-4" /> BOOKED
+                        </div>
+                      );
+                    }
+                    if (isDone) {
+                      return (
+                        <div className="flex items-center justify-center gap-2 py-2 bg-slate-800 text-slate-300 font-bold rounded border border-slate-700 shadow-inner text-sm">
+                          <CheckCircle className="w-4 h-4 text-emerald-400" /> TRIP COMPLETED
+                        </div>
+                      );
+                    }
+                    return (
+                      <button onClick={() => handleStartBooking(leg, selectedJourney.legs[idx + 1] || null)} className="w-full py-2 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded flex items-center justify-center gap-2 transition text-sm hover:-translate-y-0.5 shadow-lg shadow-brand-500/30">
+                        <Armchair className="w-4 h-4" /> BOOK SEAT
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -1111,16 +1224,18 @@ const PassengerDashboard = () => {
   );
 
   const getFinishedBuses = () => {
-    const currentDateStr = new Date().toISOString().split('T')[0];
-    const currentMins = convert24hToMinutes(getCurrentTimeStr());
-
     const finished = Object.values(bookedLegs)
-      .filter(b => (b.date < currentDateStr) || (b.date === currentDateStr && convertAmPmToMinutes(b.leg?.arrival || '11:59 PM') < currentMins));
+      .filter(b => isBookingCompleted(b));
 
     const unique = [];
     finished.forEach(b => {
-      if (!unique.find(u => u.bus === b.leg.bus)) {
-        unique.push({ bus: b.leg.bus, route: `${b.leg.from} ➔ ${b.leg.to}`, date: b.date });
+      const busNum = b.leg?.bus || b.registration_number;
+      if (busNum && !unique.find(u => u.bus === busNum)) {
+        unique.push({
+          bus: busNum,
+          route: `${b.leg?.from || b.boarding_stop || 'Source'} ➔ ${b.leg?.to || b.destination_stop || 'Dest'}`,
+          date: b.date || b.travel_date
+        });
       }
     });
     return unique;
@@ -1533,124 +1648,215 @@ const PassengerDashboard = () => {
   };
 
   const renderTicketLayout = (isFinishedTab) => {
-    const currentDateStr = new Date().toISOString().split('T')[0];
-    const currentMins = convert24hToMinutes(getCurrentTimeStr());
-
     // Convert object to array for easier filtering
     const allBookings = Object.entries(bookedLegs).map(([key, data]) => ({ id: key, ...data }));
 
     // Split into Active vs Finished
     const listToRender = allBookings.filter(b => {
-      const isPast = (b.date < currentDateStr) || (b.date === currentDateStr && convertAmPmToMinutes(b.leg?.arrival || '11:59 PM') < currentMins);
-      return isFinishedTab ? isPast : !isPast;
+      const completed = isBookingCompleted(b);
+      return isFinishedTab ? completed : !completed;
     });
 
-    // Sub-Filter by date and time
+    // Sub-Filter by date and time (only for active tab if user sets filters)
     const filteredBookings = listToRender.filter(b => {
-      if (!isFinishedTab && bookFilterDate && b.date !== bookFilterDate) return false;
-      if (!isFinishedTab && bookFilterTime && convertAmPmToMinutes(b.leg?.departure || '00:00') < convert24hToMinutes(bookFilterTime)) return false;
+      const ticketDate = normalizeDateStr(b.date || b.travel_date);
+      if (!isFinishedTab && bookFilterDate && ticketDate !== bookFilterDate) return false;
+      if (!isFinishedTab && bookFilterTime && bookFilterTime !== '00:00' && convertAmPmToMinutes(b.leg?.departure || b.departure || '00:00') < convert24hToMinutes(bookFilterTime)) return false;
       return true;
+    });
+
+    const sortedBookings = [...filteredBookings].sort((a, b) => {
+      const dateA = normalizeDateStr(a.date || a.travel_date || '');
+      const dateB = normalizeDateStr(b.date || b.travel_date || '');
+      const depA = convertAmPmToMinutes(a.leg?.departure || a.departure || '00:00');
+      const depB = convertAmPmToMinutes(b.leg?.departure || b.departure || '00:00');
+      if (isFinishedTab) {
+        if (dateB !== dateA) return dateB.localeCompare(dateA);
+        return depB - depA;
+      }
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+      return depA - depB;
     });
 
     return (
       <div className="space-y-6 max-w-4xl mx-auto">
-        <h2 className="text-2xl font-black text-white">{isFinishedTab ? "Journey History" : "Your Booked Tickets"}</h2>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-black text-white">{isFinishedTab ? "Journey History (Completed Trips)" : "Your Booked Tickets (Active & Upcoming)"}</h2>
+            <p className="text-xs text-slate-400 mt-1">
+              {isFinishedTab
+                ? "Trips that have completed their scheduled journey time appear here automatically."
+                : "Active passes ready for boarding. Once your trip time is completed, passes move to Finished."}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-bold px-3 py-1 rounded-full border ${isFinishedTab ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
+              {listToRender.length} {listToRender.length === 1 ? 'Trip' : 'Trips'}
+            </span>
+          </div>
+        </div>
 
         {/* Filters (Only show for upcoming bookings to manage active schedule) */}
-        {!isFinishedTab && (
+        {!isFinishedTab ? (
           <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-wrap gap-4 items-end shadow-lg">
             <div className="flex-1 min-w-[200px]">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest pl-1 mb-2 block">Filter by Date</label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest pl-1">Filter by Date</label>
+                {bookFilterDate && (
+                  <button onClick={() => setBookFilterDate('')} className="text-[10px] text-brand-400 hover:text-brand-300 font-bold">
+                    Show All Dates
+                  </button>
+                )}
+              </div>
               <input
                 type="date"
                 value={bookFilterDate}
                 onChange={e => setBookFilterDate(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-500"
+                style={{ colorScheme: 'dark' }}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-500 text-sm"
               />
             </div>
             <div className="flex-1 min-w-[200px]">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-widest pl-1 mb-2 block">Departing After</label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest pl-1">Departing After</label>
+                {bookFilterTime !== '00:00' && (
+                  <button onClick={() => setBookFilterTime('00:00')} className="text-[10px] text-brand-400 hover:text-brand-300 font-bold">
+                    Reset Time
+                  </button>
+                )}
+              </div>
               <input
                 type="time"
                 value={bookFilterTime}
                 onChange={e => setBookFilterTime(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-500"
+                style={{ colorScheme: 'dark' }}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-500 text-sm"
               />
+            </div>
+            {(bookFilterDate || bookFilterTime !== '00:00') && (
+              <button
+                onClick={() => { setBookFilterDate(''); setBookFilterTime('00:00'); }}
+                className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 transition"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="bg-slate-900/60 border border-slate-800/80 p-3.5 rounded-2xl flex items-center justify-between shadow-lg">
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <CheckCircle className="w-4 h-4 text-emerald-400" />
+              <span>Showing your verified completed journeys. Completed trips are automatically moved here from active passes.</span>
             </div>
           </div>
         )}
 
         {/* Tickets */}
-        {filteredBookings.length > 0 ? (
+        {sortedBookings.length > 0 ? (
           <div className="grid gap-4">
-            {filteredBookings.sort((a, b) => convertAmPmToMinutes(a.leg.departure) - convertAmPmToMinutes(b.leg.departure)).map((b) => (
-              <div key={b.id} className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden flex flex-col md:flex-row gap-6 items-center group transition-all hover:border-slate-700">
-                <div className={`absolute top-0 right-0 w-32 h-32 ${isFinishedTab ? 'bg-slate-500/10' : 'bg-emerald-500/10'} blur-[50px] pointer-events-none rounded-full transform translate-x-1/2 -translate-y-1/2`} />
+            {sortedBookings.map((b) => {
+              const busNo = b.leg?.bus || b.registration_number || 'TN-30-N-1234';
+              const fromLoc = b.leg?.from || b.boarding_stop || 'Source';
+              const toLoc = b.leg?.to || b.destination_stop || 'Destination';
+              const depTime = b.leg?.departure || b.departure || '08:00 AM';
+              const arrTime = b.leg?.arrival || b.arrival || '10:00 AM';
+              const travelDate = b.date || b.travel_date || '2026-10-10';
 
-                <div className="flex-1 w-full space-y-4 relative z-10">
-                  <div className="flex justify-between items-center border-b border-slate-800/80 pb-3">
-                    <span className={`text-xs font-bold uppercase tracking-widest px-2 py-1 rounded border ${isFinishedTab ? 'text-slate-400 bg-slate-800 border-slate-700' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'}`}>{b.leg.service_type || 'TNSTC'}</span>
-                    <span className="text-xs text-slate-400 font-bold flex items-center gap-2">
-                      {isFinishedTab && <CheckCircle className="w-4 h-4 text-emerald-500" />}
-                      {b.date}
-                    </span>
+              return (
+                <div key={b.id || b.pnr} className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden flex flex-col md:flex-row gap-6 items-center group transition-all hover:border-slate-700">
+                  <div className={`absolute top-0 right-0 w-32 h-32 ${isFinishedTab ? 'bg-slate-500/10' : 'bg-emerald-500/10'} blur-[50px] pointer-events-none rounded-full transform translate-x-1/2 -translate-y-1/2`} />
+
+                  <div className="flex-1 w-full space-y-4 relative z-10">
+                    <div className="flex justify-between items-center border-b border-slate-800/80 pb-3">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-bold uppercase tracking-widest px-2 py-1 rounded border ${isFinishedTab ? 'text-slate-400 bg-slate-800 border-slate-700' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'}`}>{b.leg?.service_type || b.service_type || 'TNSTC'}</span>
+                        <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                          PNR: {b.pnr || b.booking_reference || 'TNSTC-PASS'}
+                        </span>
+                      </div>
+                      <span className="text-xs text-slate-400 font-bold flex items-center gap-2">
+                        {isFinishedTab ? (
+                          <span className="text-emerald-400 font-bold uppercase text-[10px] bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3 text-emerald-400" /> Trip Completed
+                          </span>
+                        ) : (
+                          <span className="text-emerald-400 font-bold uppercase text-[10px] bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1">
+                            <Armchair className="w-3 h-3 text-emerald-400" /> Active Pass
+                          </span>
+                        )}
+                        <span className="text-white font-mono">{travelDate}</span>
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center text-white">
+                      <div className="flex-1">
+                        <div className="text-lg font-black">{depTime}</div>
+                        <div className="text-sm font-medium text-slate-400 mt-1">{fromLoc}</div>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-slate-600 mx-4" />
+                      <div className="flex-1 text-right">
+                        <div className="text-lg font-black">{arrTime}</div>
+                        <div className="text-sm font-medium text-slate-400 mt-1">{toLoc}</div>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex justify-between items-center text-white">
-                    <div className="flex-1">
-                      <div className="text-lg font-black">{b.leg.departure}</div>
-                      <div className="text-sm font-medium text-slate-400 mt-1">{b.leg.from}</div>
-                    </div>
-                    <ArrowRight className="w-5 h-5 text-slate-600 mx-4" />
-                    <div className="flex-1 text-right">
-                      <div className="text-lg font-black">{b.leg.arrival}</div>
-                      <div className="text-sm font-medium text-slate-400 mt-1">{b.leg.to}</div>
-                    </div>
+                  <div className="w-full md:w-auto flex flex-col items-center md:items-end md:pl-6 md:border-l border-slate-800/80 shrink-0 gap-2 relative z-10">
+                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">Bus Registration</div>
+                    <div className="text-white font-mono bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">{busNo}</div>
+
+                    <div className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-2">Seat(s)</div>
+                    <div className="text-brand-400 font-bold">{b.seats || b.seat_number || 'S1'}</div>
+
+                    {!isFinishedTab ? (
+                      <div className="mt-3 flex flex-col gap-2 w-full">
+                        <button
+                          onClick={() => setSelectedTicketModal(b)}
+                          className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition text-xs shadow-md"
+                        >
+                          <QrCode className="w-4 h-4" /> QR Pass & OTP: <span className="font-mono text-amber-300 font-black">{b.otp || '789012'}</span>
+                        </button>
+                        <button
+                          onClick={() => handleTrackBus(fromLoc, toLoc)}
+                          className="w-full py-2 px-3 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition text-xs shadow-[0_5px_15px_-3px_rgba(37,99,235,0.4)]"
+                        >
+                          <Activity className="w-4 h-4" /> Track Live
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-3 flex flex-col gap-2 w-full">
+                        <button
+                          onClick={() => setSelectedTicketModal(b)}
+                          className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition text-xs border border-slate-700 shadow"
+                        >
+                          <QrCode className="w-3.5 h-3.5 text-emerald-400" /> View QR Pass & Receipt
+                        </button>
+                        <button
+                          onClick={() => {
+                            setComplaintBusNumber(busNo);
+                            setActiveTab('complaint');
+                          }}
+                          className="w-full py-2 px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition text-xs shadow-[0_5px_15px_-3px_rgba(225,29,72,0.4)]"
+                        >
+                          <ShieldAlert className="w-3.5 h-3.5" /> Give Feedback
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                <div className="w-full md:w-auto flex flex-col items-center md:items-end md:pl-6 md:border-l border-slate-800/80 shrink-0 gap-2 relative z-10">
-                  <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">Bus Registration</div>
-                  <div className="text-white font-mono bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">{b.leg.bus}</div>
-
-                  <div className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-2">Seat(s)</div>
-                  <div className="text-brand-400 font-bold">{b.seats}</div>
-
-                  {!isFinishedTab ? (
-                    <div className="mt-3 flex flex-col gap-2 w-full">
-                      <button
-                        onClick={() => setSelectedTicketModal(b)}
-                        className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded flex items-center justify-center gap-2 transition text-xs shadow-md"
-                      >
-                        <QrCode className="w-4 h-4" /> QR Pass & OTP: <span className="font-mono text-amber-300 font-black">{b.otp || '789012'}</span>
-                      </button>
-                      <button
-                        onClick={() => handleTrackBus(b.leg.from, b.leg.to)}
-                        className="w-full py-2 px-3 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded flex items-center justify-center gap-2 transition text-xs shadow-[0_5px_15px_-3px_rgba(37,99,235,0.4)]"
-                      >
-                        <Activity className="w-4 h-4" /> Track Live
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setComplaintBusNumber(b.leg.bus);
-                        setActiveTab('complaint');
-                      }}
-                      className="mt-4 w-full py-2 px-4 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded flex items-center justify-center gap-2 transition text-sm shadow-[0_5px_15px_-3px_rgba(225,29,72,0.4)]"
-                    >
-                      <ShieldAlert className="w-4 h-4" /> Give Feedback
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-500">
-            {isFinishedTab ? <CheckCircle className="w-12 h-12 mx-auto mb-4 opacity-30" /> : <Armchair className="w-12 h-12 mx-auto mb-4 opacity-30" />}
-            <p className="font-bold text-lg">{isFinishedTab ? "No completed journeys" : "No active tickets found"}</p>
-            <p className="text-sm">{isFinishedTab ? "Trips you've finished will appear here." : "Try adjusting your date or time filters, or go book a journey!"}</p>
+            {isFinishedTab ? <CheckCircle className="w-12 h-12 mx-auto mb-4 opacity-30 text-emerald-400" /> : <Armchair className="w-12 h-12 mx-auto mb-4 opacity-30 text-brand-400" />}
+            <p className="font-bold text-lg text-white">{isFinishedTab ? "No completed journeys yet" : "No active tickets found"}</p>
+            <p className="text-sm mt-1">{isFinishedTab ? "Trips you've finished will appear here once their scheduled time is complete." : "You don't have any upcoming trips. Use the search to book a journey!"}</p>
+            {!isFinishedTab && (
+              <button onClick={() => setActiveTab('home')} className="mt-4 px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs shadow-lg transition">
+                Search & Book Buses
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1760,6 +1966,10 @@ const PassengerDashboard = () => {
     );
   };
 
+  const allBookingsList = Object.entries(bookedLegs).map(([key, data]) => ({ id: key, ...data }));
+  const activeBookingsCount = allBookingsList.filter(b => !isBookingCompleted(b)).length;
+  const finishedBookingsCount = allBookingsList.filter(b => isBookingCompleted(b)).length;
+
   return (
     <div className="min-h-screen bg-slate-950 flex shadow-2xl relative overflow-hidden">
 
@@ -1780,13 +1990,27 @@ const PassengerDashboard = () => {
               <Clock className="w-5 h-5 shrink-0" />
               <span className="font-bold hidden lg:block uppercase text-xs tracking-wider">Recent</span>
             </button>
-            <button onClick={() => setActiveTab('booked')} className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${activeTab === 'booked' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <Armchair className="w-5 h-5 shrink-0" />
-              <span className="font-bold hidden lg:block uppercase text-xs tracking-wider">Booked</span>
+            <button onClick={() => setActiveTab('booked')} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${activeTab === 'booked' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <div className="flex items-center gap-4">
+                <Armchair className="w-5 h-5 shrink-0" />
+                <span className="font-bold hidden lg:block uppercase text-xs tracking-wider">Booked</span>
+              </div>
+              {activeBookingsCount > 0 && (
+                <span className="hidden lg:inline-block text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold border border-emerald-500/30">
+                  {activeBookingsCount}
+                </span>
+              )}
             </button>
-            <button onClick={() => setActiveTab('finished')} className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${activeTab === 'finished' ? 'bg-slate-500/20 text-white border border-slate-500/30' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
-              <CheckCircle className="w-5 h-5 shrink-0" />
-              <span className="font-bold hidden lg:block uppercase text-xs tracking-wider">Finished</span>
+            <button onClick={() => setActiveTab('finished')} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${activeTab === 'finished' ? 'bg-slate-500/20 text-white border border-slate-500/30' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+              <div className="flex items-center gap-4">
+                <CheckCircle className="w-5 h-5 shrink-0" />
+                <span className="font-bold hidden lg:block uppercase text-xs tracking-wider">Finished</span>
+              </div>
+              {finishedBookingsCount > 0 && (
+                <span className="hidden lg:inline-block text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-bold border border-slate-700">
+                  {finishedBookingsCount}
+                </span>
+              )}
             </button>
             <button onClick={() => setActiveTab('complaint')} className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${activeTab === 'complaint' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
               <ShieldAlert className="w-5 h-5 shrink-0" />
@@ -1828,7 +2052,7 @@ const PassengerDashboard = () => {
           </div>
         </main>
 
-        {/* Mobile Nav */}
+        {/* Mobile App Bottom Nav Bar */}
         <footer className="fixed md:hidden bottom-0 left-0 right-0 h-16 bg-slate-900 border-t border-slate-800 flex justify-around items-center z-40">
           <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center gap-1 ${activeTab === 'home' || activeTab === 'search' ? 'text-brand-400' : 'text-slate-500'}`}>
             <Search className="w-5 h-5" />
@@ -1838,9 +2062,19 @@ const PassengerDashboard = () => {
             <Clock className="w-5 h-5" />
             <span className="text-[10px] uppercase font-bold">Recent</span>
           </button>
-          <button onClick={() => setActiveTab('booked')} className={`flex flex-col items-center gap-1 ${activeTab === 'booked' ? 'text-emerald-400' : 'text-slate-500'}`}>
+          <button onClick={() => setActiveTab('booked')} className={`flex flex-col items-center gap-1 relative ${activeTab === 'booked' ? 'text-emerald-400' : 'text-slate-500'}`}>
             <Armchair className="w-5 h-5" />
-            <span className="text-[10px] uppercase font-bold">Book</span>
+            <span className="text-[10px] uppercase font-bold">Booked</span>
+            {activeBookingsCount > 0 && (
+              <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-emerald-400"></span>
+            )}
+          </button>
+          <button onClick={() => setActiveTab('finished')} className={`flex flex-col items-center gap-1 relative ${activeTab === 'finished' ? 'text-white' : 'text-slate-500'}`}>
+            <CheckCircle className="w-5 h-5" />
+            <span className="text-[10px] uppercase font-bold">Finished</span>
+            {finishedBookingsCount > 0 && (
+              <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-slate-400"></span>
+            )}
           </button>
           <button onClick={() => setActiveTab('complaint')} className={`flex flex-col items-center gap-1 ${activeTab === 'complaint' ? 'text-rose-400' : 'text-slate-500'}`}>
             <ShieldAlert className="w-5 h-5" />
