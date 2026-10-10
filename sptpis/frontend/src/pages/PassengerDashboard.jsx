@@ -174,7 +174,7 @@ const PassengerDashboard = () => {
         status: 'VALID'
       }));
       localStorage.setItem('sptpis_valid_tickets', JSON.stringify(validArray));
-    } catch (e) {}
+    } catch (e) { }
   }, [bookedLegs]);
 
   // Complaint state
@@ -209,12 +209,12 @@ const PassengerDashboard = () => {
       const res = await axios.get('http://localhost:5000/api/passenger/complaints?user_id=Passenger1');
       // map backend names to frontend names
       const mapped = res.data.map(c => ({
-        id: 'C-' + c.complaint_id,
+        id: 'C-' + (c.complaint_id || c._id),
         date: new Date(c.created_date).toLocaleDateString(),
         time: new Date(c.created_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        busNumber: c.location || 'N/A',
+        busNumber: c.busNumber || c.location || 'N/A',
         category: c.category,
-        text: c.description || '',
+        text: c.description || c.text || '',
         statusStr: c.statusStr,
         photoUrl: null
       }));
@@ -442,7 +442,11 @@ const PassengerDashboard = () => {
       setComplaintBusNumber('');
     } catch (err) {
       console.error(err);
-      alert("Failed to submit complaint.");
+      if (err.response && err.response.data && err.response.data.error) {
+        alert(err.response.data.error);
+      } else {
+        alert("Failed to submit complaint.");
+      }
     }
   };
 
@@ -989,7 +993,16 @@ const PassengerDashboard = () => {
       'coimbatore': [11.0168, 76.9558],
       'madurai': [9.9252, 78.1198],
       'trichy': [10.7905, 78.7047],
-      'tiruppur': [11.1085, 77.3411]
+      'tiruppur': [11.1085, 77.3411],
+      'namakkal': [11.2189, 78.1674],
+      'karur': [10.9504, 78.0833],
+      'dindigul': [10.3673, 77.9803],
+      'hosur': [12.7409, 77.8253],
+      'krishnagiri': [12.5186, 78.2137],
+      'tiruvanamalai': [12.2253, 79.0747],
+      'tirunelveli': [8.7139, 77.7567],
+      'thoothukudi': [8.7642, 78.1348],
+      'kanyakumari': [8.0883, 77.5385]
     };
 
     const sLow = trackSrc.toLowerCase();

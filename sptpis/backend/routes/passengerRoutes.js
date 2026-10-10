@@ -74,15 +74,65 @@ router.get('/journeys/plan', async (req, res) => {
     }
 });
 
-// Notifications
-router.get('/notifications', async (req, res) => {
-    // Return dummy notifications to passenger
-    res.json({
-        notifications: [
-            { id: 1, type: 'DELAY', title: 'Bus Delayed', message: 'Your tracked bus to Salem is delayed by 20 minutes due to traffic.', time: '10 mins ago' },
-            { id: 2, type: 'ALERT', title: 'Service Change', message: 'The 09:00 service from Dharmapuri operates via alternate route today.', time: '1 hour ago' }
-        ]
-    });
+const Complaint = require('../models/Complaint');
+
+// Complaints Routes
+router.get('/complaints', async (req, res) => {
+    try {
+        const { user_id } = req.query;
+        const complaints = await Complaint.find({ reported_by: user_id || 'Passenger1' }).sort({ created_date: -1 });
+
+        // Add statusStr based on standard, ensure field names match UI expectations
+        const enriched = complaints.map(c => ({
+            ...c.toObject(),
+            statusStr: c.status,
+            busNumber: c.busNumber
+        }));
+
+        res.json(enriched);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/complaints', async (req, res) => {
+    try {
+        const { category, busNumber, text, user_id } = req.body;
+
+        // Find bus in SQLite to validate it's real
+        const bus = await db.get(`SELECT bus_id, depot_name FROM Buses WHERE registration_number = ? COLLATE NOCASE`, [busNumber.trim()]);
+        if (!bus) {
+            return res.status(400).json({ error: `The Bus registration number "${busNumber}" does not exist in any Depot Fleet Database.` });
+        }
+
+        // Save into MongoDB
+        const newComplaint = new Complaint({
+            category,
+            busNumber,
+            location: bus.depot_name || busNumber,
+            description: text,
+            reported_by: user_id || 'Passenger1',
+            status: 'Open',
+            statusStr: 'Open',
+            severity: 'High'
+        });
+        await newComplaint.save();
+
+        // Alert the Depot Admin system immediately via socket
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('new_depot_complaint', {
+                complaint_id: newComplaint._id,
+                category,
+                busNumber,
+                text
+            });
+        }
+
+        res.json({ success: true, complaint_id: newComplaint._id });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 module.exports = router;

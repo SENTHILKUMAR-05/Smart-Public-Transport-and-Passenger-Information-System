@@ -211,7 +211,10 @@ const DepotAdminDashboard = () => {
 
     const [isFleetModalOpen, setIsFleetModalOpen] = useState(false);
     const [editingFleet, setEditingFleet] = useState(null);
-    const [fleetForm, setFleetForm] = useState({ registration_number: '', bus_type: 'Town Bus', total_seats: 54, gps_device_id: '', status: 'Active' });
+    const [fleetForm, setFleetForm] = useState({
+        registration_number: '', bus_type: 'Town Bus', total_seats: 54, gps_device_id: '', status: 'Active',
+        source: '', destination: '', departure: '', arrival: '', fare: '₹55'
+    });
 
     const handleFleetSubmit = async (e) => {
         e.preventDefault();
@@ -250,11 +253,16 @@ const DepotAdminDashboard = () => {
                 bus_type: bus.bus_type || 'Town Bus',
                 total_seats: bus.total_seats || 54,
                 gps_device_id: bus.gps_device_id || '',
-                status: bus.status || 'Active'
+                status: bus.status || 'Active',
+                source: bus.source || '',
+                destination: bus.destination || '',
+                departure: bus.departure || '',
+                arrival: bus.arrival || '',
+                fare: bus.fare || '₹55'
             });
         } else {
             setEditingFleet(null);
-            setFleetForm({ registration_number: '', bus_type: 'Town Bus', total_seats: 54, gps_device_id: '', status: 'Active' });
+            setFleetForm({ registration_number: '', bus_type: 'Town Bus', total_seats: 54, gps_device_id: '', status: 'Active', source: '', destination: '', departure: '', arrival: '', fare: '₹55' });
         }
         setIsFleetModalOpen(true);
     };
@@ -402,7 +410,7 @@ const DepotAdminDashboard = () => {
             } else if (menu === 'incidents') {
                 try {
                     const res = await axios.get('/api/depot/incidents');
-                    if (res.data && res.data.length >= 5) setIncidents(res.data);
+                    if (res.data && res.data.length > 0) setIncidents(res.data);
                     else setIncidents(defaultIncidents);
                 } catch (err) {
                     setIncidents(defaultIncidents);
@@ -410,7 +418,7 @@ const DepotAdminDashboard = () => {
             } else if (menu === 'complaints') {
                 try {
                     const res = await axios.get('/api/depot/complaints');
-                    if (res.data && res.data.length >= 5) setComplaints(res.data);
+                    if (res.data && res.data.length > 0) setComplaints(res.data);
                     else setComplaints(defaultComplaints);
                 } catch (err) {
                     setComplaints(defaultComplaints);
@@ -1013,7 +1021,7 @@ const DepotAdminDashboard = () => {
                             {incidents.map((inc, idx) => (
                                 <div key={inc.incident_id || idx} className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-5 shadow-xl transition flex flex-col justify-between relative overflow-hidden group">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full blur-2xl group-hover:bg-rose-500/10 transition"></div>
-                                    
+
                                     <div>
                                         <div className="flex justify-between items-start gap-2 mb-3">
                                             <div>
@@ -1496,6 +1504,56 @@ const DepotAdminDashboard = () => {
                                     onChange={e => setFleetForm({ ...fleetForm, total_seats: e.target.value })}
                                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-amber-500"
                                 />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 border-t border-slate-800 pt-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Source Route</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={fleetForm.source}
+                                        onChange={e => setFleetForm({ ...fleetForm, source: e.target.value })}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-amber-500"
+                                        placeholder="e.g. Salem"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Destination Route</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={fleetForm.destination}
+                                        onChange={e => setFleetForm({ ...fleetForm, destination: e.target.value })}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-amber-500"
+                                        placeholder="e.g. Erode"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Departure Time</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={fleetForm.departure}
+                                        onChange={e => setFleetForm({ ...fleetForm, departure: e.target.value })}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-amber-500"
+                                        placeholder="e.g. 04:30 AM"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Arrival Time</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={fleetForm.arrival}
+                                        onChange={e => setFleetForm({ ...fleetForm, arrival: e.target.value })}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-amber-500"
+                                        placeholder="e.g. 06:00 AM"
+                                    />
+                                </div>
                             </div>
 
                             <div>

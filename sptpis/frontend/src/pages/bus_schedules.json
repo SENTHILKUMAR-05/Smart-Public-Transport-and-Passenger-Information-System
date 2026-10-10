@@ -2374,5 +2374,41 @@
     "type": "DIRECT",
     "duration": "1h 15m",
     "fare": "₹45"
+  },
+  {
+    "id": "depot_added_1791520416543",
+    "bus": "TN-55-8001",
+    "from": "NAMAKKAL",
+    "to": "SALEM",
+    "departure": "07:00 AM",
+    "arrival": "09:00 AM",
+    "service_type": "Express",
+    "type": "DIRECT",
+    "duration": "2h 00m",
+    "fare": "₹55"
+  },
+  {
+    "id": "depot_added_1791520875693",
+    "bus": "TN-66-7001",
+    "from": "NAMAKKAL",
+    "to": "ERODE",
+    "departure": "11:00 AM",
+    "arrival": "12:45 PM",
+    "service_type": "Express",
+    "type": "DIRECT",
+    "duration": "2h 00m",
+    "fare": "₹55"
+  },
+  {
+    "id": "depot_added_1791521129861",
+    "bus": "TN-66-8005",
+    "from": "COIMBATORE",
+    "to": "TIRUPPUR",
+    "departure": "11:00 AM",
+    "arrival": "01:00 PM",
+    "service_type": "Express",
+    "type": "DIRECT",
+    "duration": "2h 00m",
+    "fare": "₹55"
   }
 ]

@@ -74,6 +74,46 @@ router.get('/dashboard', async (req, res) => {
     }
 });
 
+router.get('/seed-buses', async (req, res) => {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const jsonPath = path.join(__dirname, '../../frontend/src/pages/bus_schedules.json');
+        const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+
+        let busesMap = {};
+        data.forEach(item => {
+            if (!busesMap[item.bus]) {
+                busesMap[item.bus] = {
+                    registration_number: item.bus,
+                    bus_type: item.service_type || 'Town Bus',
+                    depot_name: 'Dharmapuri Depot',
+                    total_seats: 54,
+                    status: 'Active'
+                };
+            }
+        });
+
+        const uniqueBuses = Object.values(busesMap);
+        let added = 0;
+
+        for (const bus of uniqueBuses) {
+            try {
+                await db.run(`
+                    INSERT INTO Buses (registration_number, bus_type, total_seats, depot_name, status)
+                    VALUES (?, ?, ?, ?, ?)
+                `, [bus.registration_number, bus.bus_type, bus.total_seats, bus.depot_name, bus.status]);
+                added++;
+            } catch (err) {
+                // Ignore unique constraint
+            }
+        }
+        res.json({ message: `Seeded ${added} out of ${uniqueBuses.length} unique buses.` });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 router.get('/trips', async (req, res) => {
     try {
         const { date } = req.query;
@@ -421,7 +461,7 @@ router.delete('/trips/:id', async (req, res) => {
 
 router.post('/buses', async (req, res) => {
     try {
-        const { registration_number, bus_type, total_seats, status, gps_device_id } = req.body;
+        const { registration_number, bus_type, total_seats, status, gps_device_id, source, destination, departure, arrival, fare } = req.body;
         const depot = await db.get(`SELECT name FROM Depots WHERE depot_id = ?`, [req.user.depot_id]);
 
         const busRes = await db.run(`
@@ -435,6 +475,32 @@ router.post('/buses', async (req, res) => {
                 VALUES (?, ?, ?, ?, datetime('now', 'localtime'), ?)
             `, [busRes.lastID, req.user.depot_id, 'General Repair', 'Unassigned', 'Open']);
         }
+
+        // Add to passenger portal dataset
+        if (source && destination) {
+            try {
+                const fs = require('fs');
+                const path = require('path');
+                const jsonPath = path.join(__dirname, '../../frontend/src/pages/bus_schedules.json');
+                if (fs.existsSync(jsonPath)) {
+                    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+                    data.push({
+                        id: `depot_added_${Date.now()}`,
+                        bus: registration_number,
+                        from: source,
+                        to: destination,
+                        departure: departure || '06:00 AM',
+                        arrival: arrival || '08:00 AM',
+                        service_type: bus_type || 'Town Bus',
+                        type: 'DIRECT',
+                        duration: '2h 00m',
+                        fare: fare || '₹55'
+                    });
+                    fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2), 'utf8');
+                }
+            } catch (e) { console.error('Failed to sync with passenger JSON'); }
+        }
+
         res.json({ success: true });
     } catch (e) {
         if (e.message.includes('UNIQUE')) {
@@ -447,7 +513,7 @@ router.post('/buses', async (req, res) => {
 router.put('/buses/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { registration_number, bus_type, total_seats, status, gps_device_id } = req.body;
+        const { registration_number, bus_type, total_seats, status, gps_device_id, source, destination, departure, arrival, fare } = req.body;
 
         const oldBus = await db.get(`SELECT status FROM Buses WHERE bus_id = ?`, [id]);
 
@@ -467,6 +533,40 @@ router.put('/buses/:id', async (req, res) => {
                     UPDATE Maintenance SET status = 'Resolved' WHERE bus_id = ? AND status = 'Open'
                 `, [id]);
             }
+        }
+
+        // Also update passenger portal dataset if route config is provided
+        if (source && destination) {
+            try {
+                const fs = require('fs');
+                const path = require('path');
+                const jsonPath = path.join(__dirname, '../../frontend/src/pages/bus_schedules.json');
+                if (fs.existsSync(jsonPath)) {
+                    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+                    let found = data.find(b => b.bus === registration_number);
+                    if (found) {
+                        found.from = source;
+                        found.to = destination;
+                        found.departure = departure || found.departure;
+                        found.arrival = arrival || found.arrival;
+                        found.service_type = bus_type || found.service_type;
+                    } else {
+                        data.push({
+                            id: `depot_update_${Date.now()}`,
+                            bus: registration_number,
+                            from: source,
+                            to: destination,
+                            departure: departure || '06:00 AM',
+                            arrival: arrival || '08:00 AM',
+                            service_type: bus_type || 'Town Bus',
+                            type: 'DIRECT',
+                            duration: '2h 00m',
+                            fare: fare || '₹55'
+                        });
+                    }
+                    fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2), 'utf8');
+                }
+            } catch (e) { console.error('Failed to update passenger JSON'); }
         }
 
         res.json({ success: true });
@@ -614,16 +714,24 @@ router.get('/maintenance', async (req, res) => {
     }
 });
 
+const Complaint = require('../models/Complaint');
+
 router.get('/complaints', async (req, res) => {
     try {
-        const data = await db.all(`
-            SELECT c.*, b.registration_number, r.name as route_name 
-            FROM Complaints c 
-            LEFT JOIN Buses b ON c.bus_id = b.bus_id
-            LEFT JOIN Routes r ON c.route_id = r.route_id
-            ORDER BY c.created_date DESC
-        `);
-        res.json(data);
+        const complaints = await Complaint.find().sort({ created_date: -1 });
+
+        // Map fields to match UI expectations
+        const mapped = complaints.map(c => {
+            const obj = c.toObject();
+            return {
+                ...obj,
+                complaint_id: obj._id,
+                registration_number: obj.busNumber,
+                route_name: 'Mapped via DB',
+            };
+        });
+
+        res.json(mapped);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

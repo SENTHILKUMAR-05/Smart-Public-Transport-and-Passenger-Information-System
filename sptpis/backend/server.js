@@ -113,6 +113,36 @@ async function startServer() {
         busSimulator = new BusSimulator(io);
         await busSimulator.init();
 
+        // Dynamically auto-seed buses dataset into SQLite from JSON
+        try {
+            const fs = require('fs');
+            const dataPath = path.join(__dirname, '../frontend/src/pages/bus_schedules.json');
+            if (fs.existsSync(dataPath)) {
+                const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+                let busesMap = {};
+                data.forEach(item => {
+                    if (!busesMap[item.bus]) {
+                        busesMap[item.bus] = {
+                            registration_number: item.bus,
+                            bus_type: item.service_type || 'Town Bus',
+                            depot_name: 'Dharmapuri Depot',
+                            total_seats: 54,
+                            status: 'Active'
+                        };
+                    }
+                });
+                for (const bus of Object.values(busesMap)) {
+                    try {
+                        await db.run(`INSERT INTO Buses (registration_number, bus_type, total_seats, depot_name, status) VALUES (?, ?, ?, ?, ?)`,
+                            [bus.registration_number, bus.bus_type, bus.total_seats, bus.depot_name, bus.status]);
+                    } catch (err) { }
+                }
+                console.log(`Auto-seeded passenger JSON buses into depot fleet.`);
+            }
+        } catch (e) {
+            console.log("Error auto-seeding buses: ", e.message);
+        }
+
         server.listen(PORT, '0.0.0.0', () => {
             console.log(`======================================================================`);
             console.log(`  TNSTC SPTPIS Backend running on: http://localhost:${PORT}`);
