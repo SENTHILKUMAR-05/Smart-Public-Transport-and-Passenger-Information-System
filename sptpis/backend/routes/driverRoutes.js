@@ -252,7 +252,7 @@ router.post('/verify-qr', async (req, res) => {
 
         // Simulate or lookup ticket verification logic
         const isValid = qr_code.startsWith('PASS-') || qr_code.startsWith('TICKET-') || qr_code.length > 5;
-        
+
         if (isValid) {
             return res.json({
                 valid: true,
@@ -278,7 +278,7 @@ router.post('/passengers/update', async (req, res) => {
     try {
         const { trip_id, passenger_count, capacity = 50 } = req.body;
         const isFull = passenger_count >= capacity;
-        
+
         const io = req.app.get('io');
         if (io) {
             io.emit('occupancy_update', {
@@ -291,6 +291,43 @@ router.post('/passengers/update', async (req, res) => {
             });
         }
         res.json({ success: true, passenger_count, available_seats: Math.max(0, capacity - passenger_count), is_full: isFull });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Driver Garage Maintenance Tickets Endpoints
+router.get('/garage-tickets', async (req, res) => {
+    try {
+        const tickets = await db.all(`SELECT * FROM Driver_Garage_Tickets ORDER BY created_at DESC`);
+        res.json({ success: true, tickets });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+router.post('/garage-tickets', async (req, res) => {
+    try {
+        const { id, issue, bus, bus_number, severity = 'High', driver_name = 'K. Murugan', driver_id = 'TN29-DRV-201', depot = 'Dharmapuri Depot' } = req.body;
+        if (!issue) return res.status(400).json({ error: 'Issue description is required' });
+
+        const ticketId = id || `MNT-${Math.floor(1000 + Math.random() * 9000)}`;
+        const busNum = bus_number || bus || 'TN-29-N-1542';
+
+        await db.run(`
+            INSERT INTO Driver_Garage_Tickets (ticket_id, driver_id, driver_name, bus_number, depot_name, issue, severity, status, mechanic)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'Open', 'Unassigned')
+        `, [ticketId, driver_id, driver_name, busNum, depot, issue, severity]);
+
+        const newTicket = await db.get(`SELECT * FROM Driver_Garage_Tickets WHERE ticket_id = ?`, [ticketId]);
+
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('driver_garage_ticket_broadcast', newTicket);
+            io.emit('sptpis_new_garage_ticket', newTicket);
+        }
+
+        res.json({ success: true, ticket: newTicket });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

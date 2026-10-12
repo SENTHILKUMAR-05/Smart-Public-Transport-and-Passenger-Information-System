@@ -2,6 +2,49 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
 
+// ============================================================
+// LIVE SCHEDULE SEARCH — queries the BusSchedules DB table
+// ============================================================
+
+// GET all schedules (used by frontend multi-hop engine)
+router.get('/all-schedules', async (req, res) => {
+    try {
+        const schedules = await db.all(
+            `SELECT schedule_id as id, bus_number as bus, from_city as "from", to_city as "to",
+                    departure, arrival, duration, fare, service_type, status
+             FROM BusSchedules
+             WHERE status = 'Active'
+             ORDER BY from_city, departure`
+        );
+        res.json(schedules);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET schedules for a specific from/to pair
+router.get('/schedules', async (req, res) => {
+    try {
+        const { from, to } = req.query;
+        if (!from || !to) {
+            return res.status(400).json({ error: 'from and to query params are required' });
+        }
+        const schedules = await db.all(
+            `SELECT schedule_id as id, bus_number as bus, from_city as "from", to_city as "to",
+                    departure, arrival, duration, fare, service_type, status
+             FROM BusSchedules
+             WHERE LOWER(from_city) = LOWER(?) AND LOWER(to_city) = LOWER(?) AND status = 'Active'
+             ORDER BY departure`,
+            [from.trim(), to.trim()]
+        );
+        res.json(schedules);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+
+
 // Mock passenger journey planning logic
 router.get('/journeys/plan', async (req, res) => {
     try {
@@ -74,19 +117,34 @@ router.get('/journeys/plan', async (req, res) => {
     }
 });
 
-const Complaint = require('../models/Complaint');
-
 // Complaints Routes
 router.get('/complaints', async (req, res) => {
     try {
         const { user_id } = req.query;
-        const complaints = await Complaint.find({ reported_by: user_id || 'Passenger1' }).sort({ created_date: -1 });
+        const targetUser = user_id || 'Passenger1';
+
+        const complaints = await db.all(`
+            SELECT c.*, 
+                   COALESCE(b.registration_number, c.bus_number, c.registration_number) as bus_reg,
+                   COALESCE(r.name, 'Express Route') as route_name
+            FROM Complaints c
+            LEFT JOIN Buses b ON c.bus_id = b.bus_id
+            LEFT JOIN Routes r ON c.route_id = r.route_id
+            WHERE c.reported_by = ? OR c.reported_by LIKE ?
+            ORDER BY c.created_date DESC
+        `, [targetUser, `%${targetUser}%`]);
 
         // Add statusStr based on standard, ensure field names match UI expectations
         const enriched = complaints.map(c => ({
-            ...c.toObject(),
+            ...c,
+            id: c.complaint_id,
             statusStr: c.status,
-            busNumber: c.busNumber
+            busNumber: c.bus_reg || c.bus_number || c.location || 'N/A',
+            text: c.description,
+            photoUrl: c.photo_url,
+            escalation_level: c.escalation_level || 1,
+            escalated_to: c.escalated_to || 'Depot Admin',
+            resolutionNote: c.resolution_remarks || (c.status === 'Resolved' ? 'Resolved by administration.' : 'Complaint logged and routed to depot manager.')
         }));
 
         res.json(enriched);
@@ -97,39 +155,72 @@ router.get('/complaints', async (req, res) => {
 
 router.post('/complaints', async (req, res) => {
     try {
-        const { category, busNumber, text, user_id } = req.body;
+        const categoryVal = req.body.category;
+        const busNumVal = req.body.busNumber || req.body.registration_number || req.body.bus_number;
+        const textVal = req.body.text || req.body.description;
+        const photoUrlVal = req.body.photoUrl || req.body.photo_url || '';
+        const userVal = req.body.user_id || req.body.userId || 'Passenger1';
 
-        // Find bus in SQLite to validate it's real
-        const bus = await db.get(`SELECT bus_id, depot_name FROM Buses WHERE registration_number = ? COLLATE NOCASE`, [busNumber.trim()]);
-        if (!bus) {
-            return res.status(400).json({ error: `The Bus registration number "${busNumber}" does not exist in any Depot Fleet Database.` });
+        if (!busNumVal || !categoryVal || !textVal) {
+            return res.status(400).json({ error: 'Category, bus registration number, and description are required.' });
         }
 
-        // Save into MongoDB
-        const newComplaint = new Complaint({
-            category,
-            busNumber,
-            location: bus.depot_name || busNumber,
-            description: text,
-            reported_by: user_id || 'Passenger1',
-            status: 'Open',
-            statusStr: 'Open',
-            severity: 'High'
-        });
-        await newComplaint.save();
+        // Find bus in SQLite to validate it's real, tolerant of hyphens and spaces
+        const cleanReg = busNumVal.trim().replace(/[-\s]/g, '');
+        const bus = await db.get(`
+            SELECT bus_id, depot_name, current_route_id, registration_number 
+            FROM Buses 
+            WHERE REPLACE(REPLACE(registration_number, '-', ''), ' ', '') = ? COLLATE NOCASE
+            LIMIT 1
+        `, [cleanReg]);
+        if (!bus) {
+            return res.status(400).json({ error: `The Bus registration number "${busNumVal}" does not exist in any Depot Fleet Database.` });
+        }
+
+        // Save into SQLite Complaints table
+        const result = await db.run(`
+            INSERT INTO Complaints (
+                category, bus_id, route_id, bus_number, registration_number,
+                location, description, photo_url, reported_by, severity,
+                status, escalation_level, escalated_to
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Open', 1, 'Depot Admin')
+        `, [
+            categoryVal,
+            bus.bus_id,
+            bus.current_route_id || 1,
+            busNumVal.trim(),
+            busNumVal.trim(),
+            bus.depot_name || busNumVal.trim(),
+            textVal,
+            photoUrlVal || null,
+            userVal || 'Passenger1',
+            'High'
+        ]);
+
+        const complaint_id = result.lastID;
 
         // Alert the Depot Admin system immediately via socket
         const io = req.app.get('io');
         if (io) {
-            io.emit('new_depot_complaint', {
-                complaint_id: newComplaint._id,
-                category,
-                busNumber,
-                text
-            });
+            const complaintPayload = {
+                complaint_id,
+                category: categoryVal,
+                busNumber: busNumVal.trim(),
+                registration_number: busNumVal.trim(),
+                location: bus.depot_name || busNumVal.trim(),
+                description: textVal,
+                reported_by: userVal || 'Passenger1',
+                status: 'Open',
+                escalation_level: 1,
+                escalated_to: 'Depot Admin',
+                created_date: new Date().toISOString()
+            };
+            io.emit('new_depot_complaint', complaintPayload);
+            io.emit('new_complaint', complaintPayload);
+            io.emit('complaint_updated', complaintPayload);
         }
 
-        res.json({ success: true, complaint_id: newComplaint._id });
+        res.json({ success: true, complaint_id });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

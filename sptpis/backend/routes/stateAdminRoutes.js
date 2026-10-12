@@ -55,8 +55,46 @@ router.get('/routes/proposals', async (req, res) => {
 
 // Complaints
 router.get('/complaints', async (req, res) => {
-    const data = await db.all(`SELECT * FROM Complaints ORDER BY created_date DESC`);
-    res.json(data);
+    try {
+        const data = await db.all(`
+            SELECT c.*, 
+                   COALESCE(b.registration_number, c.bus_number, c.registration_number) as registration_number,
+                   COALESCE(r.name, 'State Express Route') as route_name,
+                   b.depot_name
+            FROM Complaints c
+            LEFT JOIN Buses b ON c.bus_id = b.bus_id
+            LEFT JOIN Routes r ON c.route_id = r.route_id
+            ORDER BY c.created_date DESC
+        `);
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Resolve & Compensate complaint by State Command (Level 3)
+router.put('/complaints/:id/resolve', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { remarks } = req.body;
+        const note = remarks || 'Resolved and compensated by State Transport Command. ₹100 refund coupon issued to passenger.';
+
+        await db.run(`
+            UPDATE Complaints
+            SET status = 'Resolved',
+                resolution_remarks = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE complaint_id = ?
+        `, [note, id]);
+
+        const updated = await db.get(`SELECT * FROM Complaints WHERE complaint_id = ?`, [id]);
+        const io = req.app.get('io');
+        if (io) io.emit('complaint_updated', updated);
+
+        res.json({ success: true, complaint: updated });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // Incidents

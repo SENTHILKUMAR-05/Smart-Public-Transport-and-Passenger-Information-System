@@ -3,7 +3,7 @@ import axios from 'axios';
 import {
     Building, Bus, Users, Activity, Wrench, AlertTriangle,
     MapPin, CheckCircle2, History, MessageSquare, Briefcase,
-    Navigation, CalendarClock, PhoneCall, Bell, X, CheckCircle
+    Navigation, CalendarClock, PhoneCall, Bell, X, CheckCircle, Camera
 } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
@@ -216,6 +216,36 @@ const DepotAdminDashboard = () => {
         source: '', destination: '', departure: '', arrival: '', fare: '₹55'
     });
 
+    // Complaint resolution & escalation state
+    const [actionComplaint, setActionComplaint] = useState(null); // complaint being resolved or escalated
+    const [actionType, setActionType] = useState(''); // 'resolve' | 'escalate'
+    const [actionRemarks, setActionRemarks] = useState('');
+    const [photoModalUrl, setPhotoModalUrl] = useState(null);
+
+    const handleComplaintActionSubmit = async (e) => {
+        e.preventDefault();
+        if (!actionComplaint) return;
+        try {
+            if (actionType === 'resolve') {
+                await axios.put(`/api/depot/complaints/${actionComplaint.complaint_id}/resolve`, {
+                    remarks: actionRemarks
+                });
+            } else if (actionType === 'escalate') {
+                await axios.put(`/api/depot/complaints/${actionComplaint.complaint_id}/escalate`, {
+                    reason: actionRemarks
+                });
+            }
+            setActionComplaint(null);
+            setActionType('');
+            setActionRemarks('');
+            loadTabData('complaints');
+        } catch (error) {
+            console.error('Error updating complaint:', error);
+            const errMsg = error.response?.data?.error || error.message || 'Unknown error';
+            alert('Failed to update complaint: ' + errMsg);
+        }
+    };
+
     const handleFleetSubmit = async (e) => {
         e.preventDefault();
         try {
@@ -254,8 +284,8 @@ const DepotAdminDashboard = () => {
                 total_seats: bus.total_seats || 54,
                 gps_device_id: bus.gps_device_id || '',
                 status: bus.status || 'Active',
-                source: bus.source || '',
-                destination: bus.destination || '',
+                source: bus.source || bus.from_city || '',
+                destination: bus.destination || bus.to_city || '',
                 departure: bus.departure || '',
                 arrival: bus.arrival || '',
                 fare: bus.fare || '₹55'
@@ -314,19 +344,29 @@ const DepotAdminDashboard = () => {
     };
 
     // Driver Garage Maintenance Real-time Tickets & Pop-up Notification
+    // Driver Garage Maintenance Real-time Tickets & Pop-up Notification
     const [activePopupNotif, setActivePopupNotif] = useState(null);
     const [driverGarageTickets, setDriverGarageTickets] = useState([]);
+    const [garageFilter, setGarageFilter] = useState('ALL');
 
     useEffect(() => {
         fetchInitialData();
         loadDriverGarageTickets();
 
-        // 1. Listen for custom window event dispatched when a driver submits a garage query
+        // 1. Listen for custom window events dispatched across tabs/components
         const handleNewGarageTicket = (e) => {
             const ticket = e.detail;
             if (ticket) {
-                setDriverGarageTickets(prev => [ticket, ...prev]);
+                setDriverGarageTickets(prev => [ticket, ...prev.filter(t => (t.id || t.ticket_id) !== (ticket.id || ticket.ticket_id))]);
                 setActivePopupNotif(ticket);
+            }
+        };
+
+        const handleTicketUpdated = (e) => {
+            const updated = e.detail;
+            if (updated) {
+                const targetId = updated.id || updated.ticket_id;
+                setDriverGarageTickets(prev => prev.map(t => (t.id === targetId || t.ticket_id === targetId) ? { ...t, ...updated, status: updated.status, mechanic: updated.mechanic } : t));
             }
         };
 
@@ -336,16 +376,77 @@ const DepotAdminDashboard = () => {
         };
 
         window.addEventListener('sptpis_new_garage_ticket', handleNewGarageTicket);
+        window.addEventListener('sptpis_garage_ticket_updated', handleTicketUpdated);
         window.addEventListener('storage', handleStorageChange);
+
+        // Real-time synchronization for passenger complaints & garage tickets
+        let handleComplaintSync;
+        let handleSocketNewTicket;
+        let handleSocketUpdateTicket;
+
+        if (socket) {
+            handleComplaintSync = () => {
+                loadTabData('complaints');
+            };
+            handleSocketNewTicket = (ticket) => {
+                if (ticket) {
+                    setDriverGarageTickets(prev => [ticket, ...prev.filter(t => (t.id || t.ticket_id) !== (ticket.id || ticket.ticket_id))]);
+                    setActivePopupNotif(ticket);
+                }
+            };
+            handleSocketUpdateTicket = (updated) => {
+                if (updated) {
+                    const targetId = updated.id || updated.ticket_id;
+                    setDriverGarageTickets(prev => prev.map(t => (t.id === targetId || t.ticket_id === targetId) ? { ...t, ...updated, status: updated.status, mechanic: updated.mechanic } : t));
+                }
+            };
+
+            socket.on('complaint_updated', handleComplaintSync);
+            socket.on('new_depot_complaint', handleComplaintSync);
+            socket.on('driver_garage_ticket_broadcast', handleSocketNewTicket);
+            socket.on('garage_ticket_updated_broadcast', handleSocketUpdateTicket);
+        }
 
         return () => {
             window.removeEventListener('sptpis_new_garage_ticket', handleNewGarageTicket);
+            window.removeEventListener('sptpis_garage_ticket_updated', handleTicketUpdated);
             window.removeEventListener('storage', handleStorageChange);
+            if (socket) {
+                if (handleComplaintSync) {
+                    socket.off('complaint_updated', handleComplaintSync);
+                    socket.off('new_depot_complaint', handleComplaintSync);
+                }
+                if (handleSocketNewTicket) socket.off('driver_garage_ticket_broadcast', handleSocketNewTicket);
+                if (handleSocketUpdateTicket) socket.off('garage_ticket_updated_broadcast', handleSocketUpdateTicket);
+            }
         };
-    }, []);
+    }, [socket]);
 
-    const loadDriverGarageTickets = () => {
+    const loadDriverGarageTickets = async () => {
         try {
+            // First attempt to load from backend SQLite
+            const res = await axios.get('/api/depot/garage-tickets').catch(() => null);
+            if (res && res.data && res.data.tickets && res.data.tickets.length > 0) {
+                const mapped = res.data.tickets.map(t => ({
+                    id: t.ticket_id,
+                    ticket_id: t.ticket_id,
+                    issue: t.issue,
+                    driver_name: t.driver_name,
+                    driver_id: t.driver_id,
+                    bus: t.bus_number,
+                    depot: t.depot_name,
+                    severity: t.severity,
+                    status: t.status,
+                    mechanic: t.mechanic,
+                    resolution_notes: t.resolution_notes,
+                    date: t.created_at ? t.created_at.split(' ')[0] : 'Today',
+                    time: t.created_at ? t.created_at.split(' ')[1] : 'Today'
+                }));
+                setDriverGarageTickets(mapped);
+                localStorage.setItem('sptpis_garage_tickets', JSON.stringify(mapped));
+                return;
+            }
+
             const stored = localStorage.getItem('sptpis_garage_tickets');
             if (stored) {
                 setDriverGarageTickets(JSON.parse(stored));
@@ -356,7 +457,7 @@ const DepotAdminDashboard = () => {
                     { id: 'GT-102', issue: 'Clutch plate slippage on Thoppur ghat incline', driver_name: 'S. Rajan', driver_id: 'TN33-DRV-104', bus: 'TN-33-N-0988', severity: 'High', status: 'Open', mechanic: 'Unassigned', time: '08:40 AM', date: 'Today' },
                     { id: 'GT-103', issue: 'Radiator hose puncture & coolant top-up required', driver_name: 'V. Sundaram', driver_id: 'TN29-DRV-305', bus: 'TN-29-N-1890', severity: 'High', status: 'Under Inspection', mechanic: 'M. Arumugam', time: 'Yesterday', date: 'Yesterday' },
                     { id: 'GT-104', issue: 'Headlight high-beam bulb & fuse replacement', driver_name: 'P. Arumugam', driver_id: 'TN29-DRV-412', bus: 'TN-29-N-1258', severity: 'Medium', status: 'Scheduled', mechanic: 'G. Natarajan', time: 'Yesterday', date: 'Yesterday' },
-                    { id: 'GT-105', issue: 'Speedometer telematics GPS sensor calibration', driver_name: 'M. Suresh', driver_id: 'TN29-DRV-550', bus: 'TN-01-N-8821', severity: 'Low', status: 'Completed', mechanic: 'K. Senthil', time: '06 Oct 2026', date: '06 Oct 2026' }
+                    { id: 'GT-105', issue: 'Speedometer telematics GPS sensor calibration', driver_name: 'M. Suresh', driver_id: 'TN29-DRV-550', bus: 'TN-01-N-8821', severity: 'Low', status: 'Resolved', mechanic: 'K. Senthil', time: '06 Oct 2026', date: '06 Oct 2026' }
                 ];
                 setDriverGarageTickets(initial);
                 localStorage.setItem('sptpis_garage_tickets', JSON.stringify(initial));
@@ -364,12 +465,41 @@ const DepotAdminDashboard = () => {
         } catch (e) { }
     };
 
-    const updateTicketStatus = (ticketId, newStatus, mechanicName) => {
+    const updateTicketStatus = async (ticketId, newStatus, mechanicName) => {
+        const resolvedMechanic = mechanicName || 'Assigned Depot Mechanic';
+
+        // 1. Optimistic state & localStorage update
         setDriverGarageTickets(prev => {
-            const updated = prev.map(t => t.id === ticketId ? { ...t, status: newStatus, mechanic: mechanicName || t.mechanic || 'Assigned Mechanic' } : t);
+            const updated = prev.map(t => (t.id === ticketId || t.ticket_id === ticketId) ? {
+                ...t,
+                status: newStatus,
+                mechanic: resolvedMechanic,
+                resolved_at: newStatus === 'Resolved' ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t.resolved_at
+            } : t);
             localStorage.setItem('sptpis_garage_tickets', JSON.stringify(updated));
             return updated;
         });
+
+        // 2. Dispatch cross-tab & custom window event
+        const detail = { id: ticketId, ticket_id: ticketId, status: newStatus, mechanic: resolvedMechanic };
+        window.dispatchEvent(new CustomEvent('sptpis_garage_ticket_updated', { detail }));
+        window.dispatchEvent(new Event('storage'));
+
+        // 3. Emit via socket
+        if (socket) {
+            socket.emit('garage_ticket_updated', detail);
+        }
+
+        // 4. Persist to backend API
+        try {
+            await axios.put(`/api/depot/garage-tickets/${ticketId}`, {
+                status: newStatus,
+                mechanic: resolvedMechanic,
+                resolution_notes: newStatus === 'Resolved' ? 'Inspected and repaired by depot garage mechanical division.' : null
+            });
+        } catch (e) {
+            console.warn('Backend ticket update warning:', e.message);
+        }
     };
 
     const fetchInitialData = async () => {
@@ -913,10 +1043,20 @@ const DepotAdminDashboard = () => {
                             <button onClick={() => openFleetModal()} className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-4 py-2 rounded-lg transition font-bold shadow-md">+ Add Bus</button>
                         </div>
                         <DataTable
-                            columns={['Registration', 'Type', 'Capacity', 'GPS Device', 'Current Status', 'Actions']}
+                            columns={['Registration', 'Type', 'Route & Fare', 'Capacity', 'GPS Device', 'Current Status', 'Actions']}
                             data={fleet.map(b => [
                                 <strong className="text-white font-mono">{b.registration_number}</strong>,
                                 b.bus_type,
+                                <div className="text-xs">
+                                    {b.source && b.destination ? (
+                                        <span>
+                                            <span className="text-amber-400 font-medium">{b.source} → {b.destination}</span>
+                                            <span className="ml-1.5 px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-800/50 text-emerald-400 font-semibold">{b.fare || '₹55'}</span>
+                                        </span>
+                                    ) : (
+                                        <span className="text-slate-500 italic">Unassigned</span>
+                                    )}
+                                </div>,
                                 b.total_seats + ' Seats',
                                 b.gps_device_id || 'N/A',
                                 <StatusBadge status={b.status} />,
@@ -1165,31 +1305,75 @@ const DepotAdminDashboard = () => {
                                         <p className="text-xs text-slate-400 bg-slate-950 p-3 rounded-xl border border-slate-800/60 leading-relaxed font-sans mb-4">
                                             "{cmp.description}"
                                         </p>
+
+                                        {cmp.photo_url && (
+                                            <div
+                                                onClick={() => setPhotoModalUrl(cmp.photo_url)}
+                                                className="mb-4 bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center gap-3 cursor-pointer hover:border-amber-500/50 transition group/img"
+                                            >
+                                                <img src={cmp.photo_url} alt="Passenger proof" className="w-12 h-12 object-cover rounded-lg border border-slate-700 shrink-0" />
+                                                <div className="text-left">
+                                                    <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                                                        <Camera className="w-3.5 h-3.5" /> Passenger Photo Evidence
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-500 block">Click to inspect high-resolution photo proof</span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {cmp.resolution_remarks && (
+                                            <div className="mb-4 bg-slate-950/80 border border-slate-800/80 rounded-xl p-3 text-xs">
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                                                    Action Notes & Remarks:
+                                                </span>
+                                                <span className="text-slate-200">{cmp.resolution_remarks}</span>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-2">
                                             <StatusBadge status={cmp.status || 'Open'} />
-                                            <span className="text-[10px] text-slate-500 font-mono">{cmp.created_date || 'Today'}</span>
+                                            {cmp.escalation_level > 1 && (
+                                                <span className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                                                    {cmp.escalated_to || 'Escalated'}
+                                                </span>
+                                            )}
+                                            <span className="text-[10px] text-slate-500 font-mono">{cmp.created_date ? new Date(cmp.created_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today'}</span>
                                         </div>
                                         <div className="flex gap-2">
-                                            {cmp.status !== 'Resolved' && (
-                                                <button
-                                                    onClick={() => {
-                                                        const updated = complaints.map(item => item.complaint_id === cmp.complaint_id ? { ...item, status: 'Resolved' } : item);
-                                                        setComplaints(updated);
-                                                    }}
-                                                    className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg shadow transition"
-                                                >
-                                                    Mark Resolved
-                                                </button>
+                                            {cmp.status === 'Resolved' ? (
+                                                <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1">
+                                                    ✓ Resolved
+                                                </span>
+                                            ) : (cmp.escalation_level > 1 || (cmp.status && cmp.status.toLowerCase().includes('escalat'))) ? (
+                                                <div className="text-xs font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5" title="Action locked because complaint was forwarded to higher administrative authority">
+                                                    <span>↗ Forwarded to Higher Authority</span>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        onClick={() => {
+                                                            setActionComplaint(cmp);
+                                                            setActionType('resolve');
+                                                            setActionRemarks('Investigated at Dharmapuri depot. Corrective briefing conducted and verified.');
+                                                        }}
+                                                        className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg shadow transition"
+                                                    >
+                                                        Mark Resolved
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setActionComplaint(cmp);
+                                                            setActionType('escalate');
+                                                            setActionRemarks('Escalated to Salem Regional Division for higher administrative review.');
+                                                        }}
+                                                        className="text-xs bg-indigo-500/10 hover:bg-indigo-500 text-indigo-400 hover:text-white border border-indigo-500/30 px-3 py-1.5 rounded-lg transition font-bold"
+                                                    >
+                                                        Escalate &rarr;
+                                                    </button>
+                                                </>
                                             )}
-                                            <button
-                                                onClick={() => alert(`Escalated complaint #${cmp.complaint_id} to State Transport Authority.`)}
-                                                className="text-xs bg-indigo-500/10 hover:bg-indigo-500 text-indigo-400 hover:text-white border border-indigo-500/30 px-3 py-1.5 rounded-lg transition font-bold"
-                                            >
-                                                Escalate
-                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -1224,65 +1408,104 @@ const DepotAdminDashboard = () => {
                         </div>
 
                         {/* Top Metric Cards for Garage Column */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-5 shadow-lg">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <button
+                                onClick={() => setGarageFilter('ALL')}
+                                className={`text-left bg-slate-900 border rounded-2xl p-5 shadow-lg transition ${garageFilter === 'ALL' ? 'border-brand-500 ring-2 ring-brand-500/20' : 'border-slate-800 hover:border-slate-700'}`}
+                            >
+                                <span className="text-xs font-bold uppercase text-slate-400">All Queries</span>
+                                <div className="text-3xl font-black text-white mt-1">
+                                    {driverGarageTickets.length}
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => setGarageFilter('OPEN')}
+                                className={`text-left bg-slate-900 border rounded-2xl p-5 shadow-lg transition ${garageFilter === 'OPEN' ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-amber-500/30 hover:border-amber-500/60'}`}
+                            >
                                 <span className="text-xs font-bold uppercase text-slate-400">Open Queries</span>
                                 <div className="text-3xl font-black text-amber-400 mt-1">
                                     {driverGarageTickets.filter(t => t.status === 'Open').length}
                                 </div>
-                            </div>
-                            <div className="bg-slate-900 border border-blue-500/30 rounded-2xl p-5 shadow-lg">
-                                <span className="text-xs font-bold uppercase text-slate-400">In Progress (Mechanic Assigned)</span>
+                            </button>
+                            <button
+                                onClick={() => setGarageFilter('IN_PROGRESS')}
+                                className={`text-left bg-slate-900 border rounded-2xl p-5 shadow-lg transition ${garageFilter === 'IN_PROGRESS' ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-blue-500/30 hover:border-blue-500/60'}`}
+                            >
+                                <span className="text-xs font-bold uppercase text-slate-400">In Progress</span>
                                 <div className="text-3xl font-black text-blue-400 mt-1">
-                                    {driverGarageTickets.filter(t => t.status === 'In Progress').length}
+                                    {driverGarageTickets.filter(t => t.status === 'In Progress' || t.status === 'Under Inspection' || t.status === 'Scheduled').length}
                                 </div>
-                            </div>
-                            <div className="bg-slate-900 border border-emerald-500/30 rounded-2xl p-5 shadow-lg">
+                            </button>
+                            <button
+                                onClick={() => setGarageFilter('RESOLVED')}
+                                className={`text-left bg-slate-900 border rounded-2xl p-5 shadow-lg transition ${garageFilter === 'RESOLVED' ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-emerald-500/30 hover:border-emerald-500/60'}`}
+                            >
                                 <span className="text-xs font-bold uppercase text-slate-400">Resolved Flaws</span>
                                 <div className="text-3xl font-black text-emerald-400 mt-1">
-                                    {driverGarageTickets.filter(t => t.status === 'Resolved').length}
+                                    {driverGarageTickets.filter(t => t.status === 'Resolved' || t.status === 'Completed').length}
                                 </div>
-                            </div>
+                            </button>
                         </div>
 
                         {/* Dedicated Driver Maintenance Table Column */}
                         <DataTable
-                            columns={['Ticket ID', 'Bus Reg.', 'Driver Info', 'Mechanical Flaw / Query', 'Severity', 'Time / Date', 'Status', 'Depot Action']}
-                            data={driverGarageTickets.map(t => [
-                                <strong className="font-mono text-amber-400 text-xs">{t.id}</strong>,
-                                <span className="font-mono bg-slate-950 px-2 py-1 rounded border border-slate-800 text-xs font-bold text-white">{t.bus}</span>,
-                                <div>
-                                    <div className="font-bold text-white text-xs">{t.driver_name}</div>
-                                    <div className="text-[10px] font-mono text-slate-400">{t.driver_id}</div>
-                                </div>,
-                                <div className="max-w-xs text-xs text-slate-200 font-medium">{t.issue}</div>,
-                                <StatusBadge status={t.severity || 'High'} />,
-                                <span className="text-xs text-slate-400 font-mono">{t.time || t.date}</span>,
-                                <StatusBadge status={t.status} />,
-                                <div className="flex items-center gap-2">
-                                    {t.status === 'Open' && (
-                                        <button
-                                            onClick={() => updateTicketStatus(t.id, 'In Progress', 'R. Periasamy (Mechanic)')}
-                                            className="text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-md transition"
-                                        >
-                                            Assign Mechanic
-                                        </button>
-                                    )}
-                                    {t.status !== 'Resolved' && (
-                                        <button
-                                            onClick={() => updateTicketStatus(t.id, 'Resolved', t.mechanic)}
-                                            className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-md transition flex items-center gap-1"
-                                        >
-                                            <CheckCircle className="w-3.5 h-3.5" /> Mark Resolved
-                                        </button>
-                                    )}
-                                    {t.status === 'Resolved' && (
-                                        <span className="text-xs text-emerald-400 font-mono font-bold flex items-center gap-1">
-                                            <CheckCircle className="w-3.5 h-3.5" /> Closed
-                                        </span>
-                                    )}
-                                </div>
-                            ])}
+                            columns={['Ticket ID', 'Bus Reg.', 'Driver Info', 'Mechanical Flaw / Query', 'Severity', 'Time / Date', 'Status & Mechanic', 'Depot Action']}
+                            data={driverGarageTickets
+                                .filter(t => {
+                                    if (garageFilter === 'OPEN') return t.status === 'Open';
+                                    if (garageFilter === 'IN_PROGRESS') return t.status === 'In Progress' || t.status === 'Under Inspection' || t.status === 'Scheduled';
+                                    if (garageFilter === 'RESOLVED') return t.status === 'Resolved' || t.status === 'Completed';
+                                    return true;
+                                })
+                                .map(t => [
+                                    <strong className="font-mono text-amber-400 text-xs">{t.id || t.ticket_id}</strong>,
+                                    <span className="font-mono bg-slate-950 px-2 py-1 rounded border border-slate-800 text-xs font-bold text-white">{t.bus || t.bus_number}</span>,
+                                    <div>
+                                        <div className="font-bold text-white text-xs">{t.driver_name}</div>
+                                        <div className="text-[10px] font-mono text-slate-400">{t.driver_id}</div>
+                                    </div>,
+                                    <div className="max-w-xs text-xs text-slate-200 font-medium">
+                                        {t.issue}
+                                        {t.resolution_notes && (
+                                            <div className="text-[11px] text-emerald-400 mt-1 bg-emerald-500/10 p-1.5 rounded border border-emerald-500/20">
+                                                ✓ {t.resolution_notes}
+                                            </div>
+                                        )}
+                                    </div>,
+                                    <StatusBadge status={t.severity || 'High'} />,
+                                    <span className="text-xs text-slate-400 font-mono">{t.time || t.date}</span>,
+                                    <div>
+                                        <StatusBadge status={t.status} />
+                                        {t.mechanic && t.mechanic !== 'Unassigned' && (
+                                            <div className="text-[10px] text-slate-400 font-mono mt-1">
+                                                Mech: <strong className="text-slate-200">{t.mechanic}</strong>
+                                            </div>
+                                        )}
+                                    </div>,
+                                    <div className="flex items-center gap-2">
+                                        {t.status === 'Open' && (
+                                            <button
+                                                onClick={() => updateTicketStatus(t.id || t.ticket_id, 'In Progress', 'R. Periasamy (Mechanic)')}
+                                                className="text-xs bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-md transition"
+                                            >
+                                                Assign Mechanic
+                                            </button>
+                                        )}
+                                        {t.status !== 'Resolved' && t.status !== 'Completed' && (
+                                            <button
+                                                onClick={() => updateTicketStatus(t.id || t.ticket_id, 'Resolved', t.mechanic || 'R. Periasamy')}
+                                                className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-md transition flex items-center gap-1"
+                                            >
+                                                <CheckCircle className="w-3.5 h-3.5" /> Mark Resolved
+                                            </button>
+                                        )}
+                                        {(t.status === 'Resolved' || t.status === 'Completed') && (
+                                            <span className="text-xs text-emerald-400 font-mono font-bold flex items-center gap-1">
+                                                <CheckCircle className="w-3.5 h-3.5" /> Closed
+                                            </span>
+                                        )}
+                                    </div>
+                                ])}
                         />
                     </div>
                 );
@@ -1531,27 +1754,38 @@ const DepotAdminDashboard = () => {
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-3 gap-3">
                                 <div>
-                                    <label className="block text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Departure Time</label>
+                                    <label className="block text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Departure</label>
                                     <input
                                         type="text"
                                         required
                                         value={fleetForm.departure}
                                         onChange={e => setFleetForm({ ...fleetForm, departure: e.target.value })}
-                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-amber-500"
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
                                         placeholder="e.g. 04:30 AM"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Arrival Time</label>
+                                    <label className="block text-xs font-bold text-amber-500 uppercase tracking-wider mb-1">Arrival</label>
                                     <input
                                         type="text"
                                         required
                                         value={fleetForm.arrival}
                                         onChange={e => setFleetForm({ ...fleetForm, arrival: e.target.value })}
-                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-amber-500"
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
                                         placeholder="e.g. 06:00 AM"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1">Fare (₹)</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={fleetForm.fare}
+                                        onChange={e => setFleetForm({ ...fleetForm, fare: e.target.value })}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                                        placeholder="e.g. ₹55"
                                     />
                                 </div>
                             </div>
@@ -1586,6 +1820,98 @@ const DepotAdminDashboard = () => {
                                 <button type="submit" className="flex-1 py-2.5 bg-blue-600 shadow-md shadow-blue-600/30 text-white rounded-lg font-bold hover:bg-blue-500 transition">Save Bus</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Complaint Action Modal (Resolve / Escalate) */}
+            {actionComplaint && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+                        <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+                            <div>
+                                <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${actionType === 'resolve'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                    : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
+                                    }`}>
+                                    {actionType === 'resolve' ? 'Depot Resolution' : 'Multi-Tier Escalation'}
+                                </span>
+                                <h3 className="text-lg font-black text-white mt-1">
+                                    {actionType === 'resolve' ? 'Resolve Complaint' : 'Escalate to Regional Admin'}
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => { setActionComplaint(null); setActionType(''); }}
+                                className="text-slate-400 hover:text-white text-xl font-bold p-1"
+                            >
+                                &times;
+                            </button>
+                        </div>
+
+                        <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 mb-4 text-xs">
+                            <div className="text-slate-400">
+                                Complaint ID: <span className="font-mono font-bold text-white">#{actionComplaint.complaint_id}</span>
+                            </div>
+                            <div className="text-slate-400 mt-1">
+                                Category: <span className="font-bold text-indigo-400">{actionComplaint.category}</span>
+                            </div>
+                            <div className="text-slate-400 mt-1">
+                                Bus: <span className="font-mono font-bold text-amber-300">{actionComplaint.registration_number || actionComplaint.bus_number}</span>
+                            </div>
+                        </div>
+
+                        <form onSubmit={handleComplaintActionSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                                    {actionType === 'resolve' ? 'Resolution Remarks / Actions Taken' : 'Reason for Regional Escalation'}
+                                </label>
+                                <textarea
+                                    required
+                                    rows={4}
+                                    value={actionRemarks}
+                                    onChange={e => setActionRemarks(e.target.value)}
+                                    placeholder={actionType === 'resolve' ? 'Describe the resolution or actions taken at depot...' : 'Detail why this requires regional division intervention...'}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm focus:outline-none focus:border-indigo-500 resize-none font-sans"
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => { setActionComplaint(null); setActionType(''); }}
+                                    className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className={`flex-1 py-2.5 text-white rounded-xl font-bold text-sm shadow transition ${actionType === 'resolve'
+                                        ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
+                                        : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30'
+                                        }`}
+                                >
+                                    {actionType === 'resolve' ? 'Confirm Resolution' : 'Forward to Regional'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+            {/* Photo Proof Lightbox Zoom Modal */}
+            {photoModalUrl && (
+                <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setPhotoModalUrl(null)}>
+                    <div className="relative max-w-3xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden p-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800">
+                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                                <Camera className="w-4 h-4 text-amber-400" /> Passenger Photo Evidence Proof
+                            </span>
+                            <button onClick={() => setPhotoModalUrl(null)} className="text-slate-400 hover:text-white p-1 rounded-lg">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="p-3 flex items-center justify-center max-h-[75vh] overflow-auto">
+                            <img src={photoModalUrl} alt="Complaint Evidence" className="max-w-full max-h-[70vh] rounded-xl object-contain shadow-lg" />
+                        </div>
                     </div>
                 </div>
             )}

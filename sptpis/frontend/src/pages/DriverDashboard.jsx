@@ -128,14 +128,16 @@ const DriverDashboard = () => {
   const [reportMsg, setReportMsg] = useState('');
 
   // Maintenance Ticket State
-  const [maintenanceTickets, setMaintenanceTickets] = useState([
-    { id: 'MNT-104', issue: 'Front door pneumatic seal check', severity: 'Low', status: 'In Progress', date: 'Today' }
-  ]);
+  const [maintenanceTickets, setMaintenanceTickets] = useState([]);
+  const [maintenanceFilter, setMaintenanceFilter] = useState('ALL'); // 'ALL' | 'ACTIVE' | 'RESOLVED'
+  const [maintenanceAlert, setMaintenanceAlert] = useState(null);
   const [newIssueDesc, setNewIssueDesc] = useState('');
+  const [newIssueSeverity, setNewIssueSeverity] = useState('High');
 
   // Initial Fetching
   useEffect(() => {
     fetchDriverInit();
+    loadGarageTickets();
   }, [activeTab]);
 
   // Telemetry GPS Streaming Simulator
@@ -207,16 +209,73 @@ const DriverDashboard = () => {
   }, [activeTrip?.status, useHardwareGps, socket, profile]);
 
   React.useEffect(() => {
-    if (!socket) return;
-    const handleTripAssigned = (data) => {
-      console.log('[Driver Dashboard] Real-time Trip Sync Received:', data);
-      fetchDriverInit();
+    // 1. Listen for custom window events dispatched locally
+    const handleTicketUpdated = (e) => {
+      const updated = e.detail;
+      if (updated) {
+        const targetId = updated.id || updated.ticket_id;
+        setMaintenanceTickets(prev => prev.map(t => (t.id === targetId || t.ticket_id === targetId) ? { ...t, ...updated, status: updated.status, mechanic: updated.mechanic || t.mechanic } : t));
+        setMaintenanceAlert({
+          id: Date.now(),
+          title: `🔧 Garage Maintenance Ticket #${targetId}`,
+          message: `Depot Admin updated status to "${updated.status}"${updated.mechanic ? ` (Mechanic: ${updated.mechanic})` : ''}`,
+          status: updated.status
+        });
+      }
     };
-    socket.on('trip_assigned', handleTripAssigned);
-    socket.on('global_sync_broadcast', handleTripAssigned);
+
+    const handleStorageChange = () => {
+      loadGarageTickets();
+    };
+
+    window.addEventListener('sptpis_garage_ticket_updated', handleTicketUpdated);
+    window.addEventListener('storage', handleStorageChange);
+
+    // 2. Socket.io listeners
+    let handleTripAssigned;
+    let handleSocketUpdateTicket;
+    let handleSocketNewTicket;
+
+    if (socket) {
+      handleTripAssigned = (data) => {
+        console.log('[Driver Dashboard] Real-time Trip Sync Received:', data);
+        fetchDriverInit();
+      };
+      handleSocketUpdateTicket = (updated) => {
+        if (updated) {
+          const targetId = updated.id || updated.ticket_id;
+          setMaintenanceTickets(prev => prev.map(t => (t.id === targetId || t.ticket_id === targetId) ? { ...t, ...updated, status: updated.status, mechanic: updated.mechanic || t.mechanic } : t));
+          setMaintenanceAlert({
+            id: Date.now(),
+            title: `🔧 Garage Maintenance Ticket #${targetId}`,
+            message: `Depot Admin updated status to "${updated.status}"${updated.mechanic ? ` (Mechanic: ${updated.mechanic})` : ''}`,
+            status: updated.status
+          });
+        }
+      };
+      handleSocketNewTicket = (newT) => {
+        if (newT) {
+          setMaintenanceTickets(prev => [newT, ...prev.filter(t => (t.id || t.ticket_id) !== (newT.id || newT.ticket_id))]);
+        }
+      };
+
+      socket.on('trip_assigned', handleTripAssigned);
+      socket.on('global_sync_broadcast', handleTripAssigned);
+      socket.on('garage_ticket_updated_broadcast', handleSocketUpdateTicket);
+      socket.on('driver_garage_ticket_broadcast', handleSocketNewTicket);
+    }
+
     return () => {
-      socket.off('trip_assigned', handleTripAssigned);
-      socket.off('global_sync_broadcast', handleTripAssigned);
+      window.removeEventListener('sptpis_garage_ticket_updated', handleTicketUpdated);
+      window.removeEventListener('storage', handleStorageChange);
+      if (socket) {
+        if (handleTripAssigned) {
+          socket.off('trip_assigned', handleTripAssigned);
+          socket.off('global_sync_broadcast', handleTripAssigned);
+        }
+        if (handleSocketUpdateTicket) socket.off('garage_ticket_updated_broadcast', handleSocketUpdateTicket);
+        if (handleSocketNewTicket) socket.off('driver_garage_ticket_broadcast', handleSocketNewTicket);
+      }
     };
   }, [socket]);
 
@@ -312,7 +371,7 @@ const DriverDashboard = () => {
         passenger_count: newCount,
         capacity: busCapacity
       });
-    } catch (e) {}
+    } catch (e) { }
   };
 
   // QR Code & Boarding OTP Verification
@@ -352,7 +411,7 @@ const DriverDashboard = () => {
         setQrScanning(false);
         return;
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // 2. Demo fallback codes
     if (code === '789012' || code === '894210' || code === 'PASS-TN33-SENIOR' || code === 'TICKET-ERODE-99') {
@@ -412,31 +471,74 @@ const DriverDashboard = () => {
     }
   };
 
-  const createMaintenanceTicket = () => {
-    if (!newIssueDesc) return alert("Please describe the mechanical issue/flaw");
+  const loadGarageTickets = async () => {
+    try {
+      // 1. Fetch from backend SQLite API
+      const res = await axios.get('/api/driver/garage-tickets').catch(() => null);
+      if (res && res.data && res.data.tickets && res.data.tickets.length > 0) {
+        const mapped = res.data.tickets.map(t => ({
+          id: t.ticket_id,
+          ticket_id: t.ticket_id,
+          issue: t.issue,
+          driver_name: t.driver_name,
+          driver_id: t.driver_id,
+          bus: t.bus_number,
+          depot: t.depot_name,
+          severity: t.severity,
+          status: t.status,
+          mechanic: t.mechanic,
+          resolution_notes: t.resolution_notes,
+          time: t.created_at ? t.created_at.split(' ')[1] : 'Today',
+          date: t.created_at ? t.created_at.split(' ')[0] : 'Today'
+        }));
+        setMaintenanceTickets(mapped);
+        localStorage.setItem('sptpis_garage_tickets', JSON.stringify(mapped));
+        return;
+      }
+
+      // 2. Fallback to localStorage
+      const stored = localStorage.getItem('sptpis_garage_tickets');
+      if (stored) {
+        setMaintenanceTickets(JSON.parse(stored));
+      } else {
+        const initial = [
+          { id: 'GT-101', issue: 'Rear brake chamber air leakage & pressure drop', driver_name: 'K. Murugan', driver_id: 'TN29-DRV-201', bus: 'TN-29-N-1542', severity: 'Critical', status: 'In Progress', mechanic: 'R. Periasamy', time: '09:15 AM', date: 'Today' },
+          { id: 'GT-102', issue: 'Clutch plate slippage on Thoppur ghat incline', driver_name: 'S. Rajan', driver_id: 'TN33-DRV-104', bus: 'TN-33-N-0988', severity: 'High', status: 'Open', mechanic: 'Unassigned', time: '08:40 AM', date: 'Today' },
+          { id: 'GT-105', issue: 'Speedometer telematics GPS sensor calibration', driver_name: 'M. Suresh', driver_id: 'TN29-DRV-550', bus: 'TN-01-N-8821', severity: 'Low', status: 'Resolved', mechanic: 'K. Senthil', resolution_notes: 'Replaced speed pulse sensor. Calibrated with depot telematics bench.', time: '06 Oct 2026', date: '06 Oct 2026' }
+        ];
+        setMaintenanceTickets(initial);
+        localStorage.setItem('sptpis_garage_tickets', JSON.stringify(initial));
+      }
+    } catch (e) { }
+  };
+
+  const createMaintenanceTicket = async () => {
+    if (!newIssueDesc.trim()) return alert("Please describe the mechanical issue/flaw");
+    const newId = `MNT-${Math.floor(1000 + Math.random() * 9000)}`;
     const newTicket = {
-      id: `MNT-${Math.floor(1000 + Math.random() * 9000)}`,
-      issue: newIssueDesc,
+      id: newId,
+      ticket_id: newId,
+      issue: newIssueDesc.trim(),
       driver_name: profile.name || 'K. Murugan',
       driver_id: profile.employee_id || 'TNSTC-DRV-8821',
       bus: activeTrip?.registration_number || 'TN-33-N-1122',
+      bus_number: activeTrip?.registration_number || 'TN-33-N-1122',
       depot: profile.depot || 'Erode Central Depot',
-      severity: 'High',
+      severity: newIssueSeverity || 'High',
       status: 'Open',
+      mechanic: 'Unassigned',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       date: 'Today'
     };
 
-    // 1. Update local component state
+    // 1. Optimistic state & localStorage update
     setMaintenanceTickets(prev => [newTicket, ...prev]);
 
-    // 2. Persist in localStorage for Depot Admin Dashboard
     try {
       const existing = JSON.parse(localStorage.getItem('sptpis_garage_tickets') || '[]');
       const updated = [newTicket, ...existing];
       localStorage.setItem('sptpis_garage_tickets', JSON.stringify(updated));
 
-      // Global Notification log
       const notifs = JSON.parse(localStorage.getItem('sptpis_global_notifications') || '[]');
       notifs.unshift({
         id: Date.now(),
@@ -447,18 +549,23 @@ const DriverDashboard = () => {
         depot: newTicket.depot
       });
       localStorage.setItem('sptpis_global_notifications', JSON.stringify(notifs));
-    } catch (e) {}
+    } catch (e) { }
 
-    // 3. Dispatch real-time event for Depot Admin pop-up toast notification
+    // 2. Dispatch events
     window.dispatchEvent(new CustomEvent('sptpis_new_garage_ticket', { detail: newTicket }));
     window.dispatchEvent(new Event('storage'));
 
-    // 4. Socket notification emit fallback
+    // 3. Socket broadcast
+    if (socket) {
+      socket.emit('driver_garage_ticket', newTicket);
+    }
+
+    // 4. Persist to backend API
     try {
-      if (socket) {
-        socket.emit('driver_garage_ticket', newTicket);
-      }
-    } catch (e) {}
+      await axios.post('/api/driver/garage-tickets', newTicket);
+    } catch (e) {
+      console.warn('Backend ticket creation fallback:', e.message);
+    }
 
     setNewIssueDesc('');
     alert("🔧 Garage Maintenance Query submitted successfully! Real-time alert dispatched to Depot Admin.");
@@ -1057,42 +1164,226 @@ const DriverDashboard = () => {
           {/* TAB 4: GARAGE MAINTENANCE TICKETS */}
           {activeTab === 'maintenance' && (
             <div className="space-y-6 max-w-4xl mx-auto">
-              <h2 className="text-2xl font-black text-white flex items-center gap-3">
-                <Wrench className="w-6 h-6 text-brand-400" /> Garage Maintenance & Mechanical Tickets
-              </h2>
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                <div>
+                  <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                    <Wrench className="w-6 h-6 text-brand-400" /> Garage Maintenance & Flaws Tracking
+                  </h2>
+                  <p className="text-xs text-slate-400 font-mono mt-1">
+                    Live telemetry link to Depot Mechanical Garage • Complete Ticket Lifecycle & Audit History
+                  </p>
+                </div>
+                <button
+                  onClick={loadGarageTickets}
+                  className="self-start sm:self-auto bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2 rounded-xl border border-slate-700 transition"
+                >
+                  Refresh Tickets
+                </button>
+              </div>
 
+              {/* Real-time Status Alert Toast */}
+              {maintenanceAlert && (
+                <div className="bg-brand-500/10 border border-brand-500/30 rounded-2xl p-4 flex items-center justify-between shadow-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-brand-500/20 rounded-xl text-brand-400">
+                      <Wrench className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-white font-extrabold text-xs">{maintenanceAlert.title}</div>
+                      <div className="text-slate-300 text-[11px] font-mono">{maintenanceAlert.message}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setMaintenanceAlert(null)}
+                    className="text-slate-400 hover:text-white text-xs px-2.5 py-1 rounded-lg bg-slate-800 font-mono"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {/* Maintenance Metrics Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <button
+                  onClick={() => setMaintenanceFilter('ALL')}
+                  className={`text-left bg-slate-900 border rounded-2xl p-4 shadow-lg transition ${maintenanceFilter === 'ALL' ? 'border-brand-500 ring-2 ring-brand-500/20' : 'border-slate-800 hover:border-slate-700'}`}
+                >
+                  <span className="text-[10px] font-bold uppercase text-slate-400">All Logged Tickets</span>
+                  <div className="text-2xl font-black text-white mt-1">{maintenanceTickets.length}</div>
+                </button>
+                <button
+                  onClick={() => setMaintenanceFilter('ACTIVE')}
+                  className={`text-left bg-slate-900 border rounded-2xl p-4 shadow-lg transition ${maintenanceFilter === 'ACTIVE' ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-amber-500/30 hover:border-amber-500/60'}`}
+                >
+                  <span className="text-[10px] font-bold uppercase text-slate-400">Active / In Progress</span>
+                  <div className="text-2xl font-black text-amber-400 mt-1">
+                    {maintenanceTickets.filter(t => t.status === 'Open' || t.status === 'In Progress' || t.status === 'Under Inspection' || t.status === 'Scheduled').length}
+                  </div>
+                </button>
+                <button
+                  onClick={() => setMaintenanceFilter('RESOLVED')}
+                  className={`text-left bg-slate-900 border rounded-2xl p-4 shadow-lg transition ${maintenanceFilter === 'RESOLVED' ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-emerald-500/30 hover:border-emerald-500/60'}`}
+                >
+                  <span className="text-[10px] font-bold uppercase text-slate-400">Resolved & Retained History</span>
+                  <div className="text-2xl font-black text-emerald-400 mt-1">
+                    {maintenanceTickets.filter(t => t.status === 'Resolved' || t.status === 'Completed').length}
+                  </div>
+                </button>
+              </div>
+
+              {/* Log New Mechanical Flaw Form */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-                <h3 className="font-extrabold text-white text-base">Log New Mechanical Issue for Depot Garage</h3>
-                <div className="flex gap-3">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-extrabold text-white text-base flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-400" /> Log Mechanical Defect to Depot Garage
+                  </h3>
+                  <span className="text-xs font-mono text-slate-400 bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
+                    Bus: <strong className="text-white">{activeTrip?.registration_number || 'TN-33-N-1122'}</strong>
+                  </span>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3">
                   <input
                     type="text"
-                    placeholder="Describe vehicle flaw (e.g. Brake noise, wiper blade replacement)..."
+                    placeholder="Describe vehicle flaw (e.g. Brake chamber leakage, clutch slipping, wiper motor)..."
                     value={newIssueDesc}
                     onChange={(e) => setNewIssueDesc(e.target.value)}
                     className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white text-xs font-mono focus:outline-none focus:border-brand-500"
                   />
+                  <select
+                    value={newIssueSeverity}
+                    onChange={(e) => setNewIssueSeverity(e.target.value)}
+                    className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-3 text-white text-xs font-mono focus:outline-none focus:border-brand-500"
+                  >
+                    <option value="Critical">Critical</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
                   <button
                     onClick={createMaintenanceTicket}
-                    className="bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs px-6 py-3 rounded-xl shadow-lg transition"
+                    className="bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs px-6 py-3 rounded-xl shadow-lg transition whitespace-nowrap"
                   >
                     Submit Ticket
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {maintenanceTickets.map((t) => (
-                  <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex justify-between items-center">
-                    <div>
-                      <span className="text-xs font-mono text-brand-400 font-bold">{t.id}</span>
-                      <h4 className="text-white font-bold text-sm">{t.issue}</h4>
-                      <span className="text-[10px] text-slate-500 font-mono">{t.date}</span>
-                    </div>
-                    <span className="bg-amber-500/20 text-amber-400 font-mono font-bold text-xs px-3 py-1 rounded-full border border-amber-500/30">
-                      {t.status}
-                    </span>
+              {/* Filter Tabs Bar */}
+              <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+                <button
+                  onClick={() => setMaintenanceFilter('ALL')}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition font-mono ${maintenanceFilter === 'ALL' ? 'bg-slate-800 text-white border border-slate-700' : 'text-slate-400 hover:text-white'}`}
+                >
+                  All Tickets ({maintenanceTickets.length})
+                </button>
+                <button
+                  onClick={() => setMaintenanceFilter('ACTIVE')}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition font-mono ${maintenanceFilter === 'ACTIVE' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Active ({maintenanceTickets.filter(t => t.status === 'Open' || t.status === 'In Progress' || t.status === 'Under Inspection' || t.status === 'Scheduled').length})
+                </button>
+                <button
+                  onClick={() => setMaintenanceFilter('RESOLVED')}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition font-mono ${maintenanceFilter === 'RESOLVED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Resolved & Repaired ({maintenanceTickets.filter(t => t.status === 'Resolved' || t.status === 'Completed').length})
+                </button>
+              </div>
+
+              {/* Ticket Cards List */}
+              <div className="space-y-4">
+                {maintenanceTickets
+                  .filter(t => {
+                    if (maintenanceFilter === 'ACTIVE') return t.status === 'Open' || t.status === 'In Progress' || t.status === 'Under Inspection' || t.status === 'Scheduled';
+                    if (maintenanceFilter === 'RESOLVED') return t.status === 'Resolved' || t.status === 'Completed';
+                    return true;
+                  })
+                  .map((t) => {
+                    const isResolved = t.status === 'Resolved' || t.status === 'Completed';
+                    const isInProgress = t.status === 'In Progress' || t.status === 'Under Inspection' || t.status === 'Scheduled';
+
+                    return (
+                      <div
+                        key={t.id || t.ticket_id}
+                        className={`bg-slate-900 border rounded-2xl p-5 shadow-lg space-y-3 transition ${isResolved ? 'border-emerald-500/30 bg-gradient-to-r from-slate-900 to-emerald-950/20' : isInProgress ? 'border-blue-500/30' : 'border-amber-500/30'}`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                              {t.id || t.ticket_id}
+                            </span>
+                            <span className="font-mono bg-slate-950 px-2 py-0.5 rounded border border-slate-800 text-xs font-bold text-white">
+                              {t.bus || t.bus_number}
+                            </span>
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase ${t.severity === 'Critical' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : t.severity === 'High' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-300'}`}>
+                              {t.severity || 'High'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {isResolved ? (
+                              <span className="bg-emerald-500/20 text-emerald-400 font-mono font-bold text-xs px-3 py-1 rounded-full border border-emerald-500/30 flex items-center gap-1.5">
+                                <CheckCircle className="w-3.5 h-3.5" /> Resolved & Retained
+                              </span>
+                            ) : isInProgress ? (
+                              <span className="bg-blue-500/20 text-blue-400 font-mono font-bold text-xs px-3 py-1 rounded-full border border-blue-500/30 flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5" /> In Progress
+                              </span>
+                            ) : (
+                              <span className="bg-amber-500/20 text-amber-400 font-mono font-bold text-xs px-3 py-1 rounded-full border border-amber-500/30 flex items-center gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5" /> Open / Queued
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Issue Description */}
+                        <div>
+                          <h4 className="text-white font-extrabold text-sm sm:text-base">{t.issue}</h4>
+                          <div className="flex items-center gap-4 text-[11px] text-slate-400 font-mono mt-1">
+                            <span>Logged: <strong className="text-slate-300">{t.date} {t.time}</strong></span>
+                            <span>Depot: <strong className="text-slate-300">{t.depot || 'Dharmapuri Depot'}</strong></span>
+                          </div>
+                        </div>
+
+                        {/* Mechanic Assignment & Resolution Box */}
+                        {isResolved ? (
+                          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex flex-col sm:flex-row justify-between sm:items-center gap-2 text-xs">
+                            <div className="flex items-center gap-2 text-emerald-300 font-semibold">
+                              <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                              <span>{t.resolution_notes || 'Defect rectified and certified by depot garage mechanical team. Bus cleared for operation.'}</span>
+                            </div>
+                            {t.mechanic && (
+                              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded self-start sm:self-auto">
+                                Mechanic: <strong>{t.mechanic}</strong>
+                              </span>
+                            )}
+                          </div>
+                        ) : isInProgress ? (
+                          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 flex justify-between items-center text-xs">
+                            <div className="flex items-center gap-2 text-blue-300 font-medium">
+                              <Wrench className="w-4 h-4 text-blue-400 shrink-0" />
+                              <span>Depot mechanical bay active work order.</span>
+                            </div>
+                            <span className="text-[11px] font-mono text-blue-400 bg-blue-500/20 px-2 py-0.5 rounded">
+                              Assigned: <strong>{t.mechanic || 'Depot Mechanic'}</strong>
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-[11px] font-mono text-slate-400 flex items-center gap-2">
+                            <Clock className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Awaiting mechanic allocation by Dharmapuri Depot Admin.</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                {maintenanceTickets.length === 0 && (
+                  <div className="text-center py-12 text-slate-500 font-mono text-xs border border-dashed border-slate-800 rounded-2xl">
+                    No garage tickets logged yet. Submit a defect report above to notify the depot garage.
                   </div>
-                ))}
+                )}
               </div>
             </div>
           )}

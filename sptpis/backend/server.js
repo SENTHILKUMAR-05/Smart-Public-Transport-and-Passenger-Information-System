@@ -8,6 +8,7 @@ const path = require('path');
 const db = require('./config/database');
 const connectMongoDB = require('./config/mongodb');
 const seedDatabase = require('./database/seed');
+const seedSchedules = require('./database/seed_schedules');
 const BusSimulator = require('./simulation/busSimulator');
 
 // Routes
@@ -37,7 +38,8 @@ app.set('io', io);
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ limit: '25mb', extended: true }));
 app.use(morgan('dev'));
 
 // API Routes
@@ -97,6 +99,18 @@ io.on('connection', (socket) => {
         io.emit('global_sync_broadcast', data);
         console.log(`[Socket.IO] System alert broadcasted: ${data.title}`);
     });
+
+    socket.on('driver_garage_ticket', (ticket) => {
+        io.emit('driver_garage_ticket_broadcast', ticket);
+        io.emit('sptpis_new_garage_ticket', ticket);
+        console.log(`[Socket.IO] Driver garage ticket broadcasted: ${ticket?.id || ticket?.ticket_id}`);
+    });
+
+    socket.on('garage_ticket_updated', (data) => {
+        io.emit('garage_ticket_updated_broadcast', data);
+        io.emit('sptpis_garage_ticket_updated', data);
+        console.log(`[Socket.IO] Garage ticket update broadcasted: ${data?.id || data?.ticket_id}`);
+    });
 });
 
 const PORT = process.env.PORT || 5000;
@@ -106,6 +120,9 @@ async function startServer() {
     try {
         // Init original SQLite DB & Mock data
         await seedDatabase();
+
+        // Seed BusSchedules table from JSON (skips if already seeded)
+        await seedSchedules();
 
         // Init MERN MongoDB backend
         await connectMongoDB();

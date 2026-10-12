@@ -3,7 +3,7 @@ import axios from 'axios';
 import {
     ShieldAlert, Bus, Users, Activity, BarChart3, Settings, AlertTriangle,
     MapPin, CheckCircle2, Navigation, Layers, PhoneCall, ListRestart, MonitorSpeaker,
-    PieChart, Zap, IndianRupee, HandCoins, Globe, TrendingUp, Radio, Megaphone, CloudRain, Trash2, Plus, X, Clock, Route, Check
+    PieChart, Zap, IndianRupee, HandCoins, Globe, TrendingUp, Radio, Megaphone, CloudRain, Trash2, Plus, X, Clock, Route, Check, Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FleetMap from '../components/Map/FleetMap';
@@ -28,7 +28,7 @@ const StateAdminDashboard = () => {
     const [activeMenu, setActiveMenu] = useState('overview');
     const [dashboardData, setDashboardData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const { liveBuses } = useSocket();
+    const { liveBuses, socket } = useSocket();
 
     // Tab data placeholders
     const [corporations, setCorporations] = useState([]);
@@ -45,10 +45,11 @@ const StateAdminDashboard = () => {
     const [hiddenComplaints, setHiddenComplaints] = useState([]);
     const [hiddenIncidents, setHiddenIncidents] = useState([]);
     const [hiddenProposals, setHiddenProposals] = useState([]);
+    const [photoModalUrl, setPhotoModalUrl] = useState(null);
     const [isCreatingAlert, setIsCreatingAlert] = useState(false);
     const [isAddingCorp, setIsAddingCorp] = useState(false);
     const [managingCorp, setManagingCorp] = useState(null);
-    
+
     const { triggerGlobalAlert } = useSocket();
 
     const triggerNotification = (title, message) => {
@@ -59,7 +60,21 @@ const StateAdminDashboard = () => {
 
     useEffect(() => {
         fetchInitialData();
-    }, []);
+
+        if (socket) {
+            const handleComplaintSync = () => {
+                if (activeMenu === 'complaints') {
+                    loadTabData('complaints');
+                }
+            };
+            socket.on('complaint_updated', handleComplaintSync);
+            socket.on('new_complaint', handleComplaintSync);
+            return () => {
+                socket.off('complaint_updated', handleComplaintSync);
+                socket.off('new_complaint', handleComplaintSync);
+            };
+        }
+    }, [socket, activeMenu]);
 
     const fetchInitialData = async () => {
         try {
@@ -127,9 +142,9 @@ const StateAdminDashboard = () => {
                         </div>
 
                         {/* Top Metrics Grid */}
-                        <motion.div 
-                            initial="hidden" 
-                            animate="visible" 
+                        <motion.div
+                            initial="hidden"
+                            animate="visible"
                             variants={{
                                 hidden: { opacity: 0 },
                                 visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
@@ -142,9 +157,9 @@ const StateAdminDashboard = () => {
                             <MetricCard title="System Alerts" value={(dashboardData?.delayed || 0) + (dashboardData?.critical_incidents || 0)} trend="Needs Attn" icon={AlertTriangle} color="border-rose-500/40 text-rose-400" />
                         </motion.div>
 
-                        <motion.div 
-                            initial={{ opacity: 0, y: 20 }} 
-                            animate={{ opacity: 1, y: 0 }} 
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.3, duration: 0.5 }}
                             className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6"
                         >
@@ -230,30 +245,30 @@ const StateAdminDashboard = () => {
                             </div>
                             <div className="flex items-center gap-3">
                                 <button onClick={() => setIsAddingCorp(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white font-black py-3 px-6 rounded-xl transition-all shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40 text-sm flex items-center gap-2 hover:-translate-y-1 active:scale-95">
-                                    <Plus className="w-4 h-4"/> Add Corporation
+                                    <Plus className="w-4 h-4" /> Add Corporation
                                 </button>
                             </div>
                         </div>
-                        
+
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {corporations.map((c, i) => (
                                 <motion.div key={i} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.1, type: 'spring' }} whileHover={{ y: -5, boxShadow: '0 10px 40px -10px rgba(99,102,241, 0.2)' }} className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-700/80 hover:border-indigo-500/50 rounded-3xl p-6 relative flex flex-col group transition-all duration-300 shadow-xl overflow-hidden">
-                                     <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-[40px] rounded-full pointer-events-none transition-opacity opacity-0 group-hover:opacity-100"></div>
-                                     <div className="flex justify-between items-start mb-4 relative z-10">
-                                         <div className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 px-3 py-1 rounded shadow-inner font-black uppercase tracking-widest text-lg">{c.code}</div>
-                                         <StatusBadge status={c.status} />
-                                     </div>
-                                     <h3 className="text-xl font-black text-white mb-2 relative z-10">{c.name}</h3>
-                                     <p className="text-slate-400 text-sm mb-6 flex-1 relative z-10 line-clamp-2">"{c.description || 'Primary transport division governing specified regions and operations within the state administrative body.'}"</p>
-                                     <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800/80 grid grid-cols-2 gap-4 relative z-10">
-                                         <div>
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-[40px] rounded-full pointer-events-none transition-opacity opacity-0 group-hover:opacity-100"></div>
+                                    <div className="flex justify-between items-start mb-4 relative z-10">
+                                        <div className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 px-3 py-1 rounded shadow-inner font-black uppercase tracking-widest text-lg">{c.code}</div>
+                                        <StatusBadge status={c.status} />
+                                    </div>
+                                    <h3 className="text-xl font-black text-white mb-2 relative z-10">{c.name}</h3>
+                                    <p className="text-slate-400 text-sm mb-6 flex-1 relative z-10 line-clamp-2">"{c.description || 'Primary transport division governing specified regions and operations within the state administrative body.'}"</p>
+                                    <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800/80 grid grid-cols-2 gap-4 relative z-10">
+                                        <div>
                                             <div className="text-[10px] uppercase text-slate-500 font-bold mb-1">Corporate ID</div>
                                             <div className="text-sm font-black text-white font-mono">#{c.corporation_id}</div>
-                                         </div>
-                                         <div className="flex flex-col items-end">
-                                            <button onClick={() => setManagingCorp(c)} className="text-indigo-400 hover:text-indigo-300 text-sm font-bold flex items-center gap-1 group/btn"><Settings className="w-4 h-4 group-hover/btn:rotate-90 transition-transform duration-300"/> Manage</button>
-                                         </div>
-                                     </div>
+                                        </div>
+                                        <div className="flex flex-col items-end">
+                                            <button onClick={() => setManagingCorp(c)} className="text-indigo-400 hover:text-indigo-300 text-sm font-bold flex items-center gap-1 group/btn"><Settings className="w-4 h-4 group-hover/btn:rotate-90 transition-transform duration-300" /> Manage</button>
+                                        </div>
+                                    </div>
                                 </motion.div>
                             ))}
                         </div>
@@ -309,12 +324,12 @@ const StateAdminDashboard = () => {
                                         }
 
                                         return (
-                                            <motion.div 
-                                                initial={{ scale: 0, opacity: 0 }} 
-                                                animate={{ scale: 1, opacity: 1 }} 
+                                            <motion.div
+                                                initial={{ scale: 0, opacity: 0 }}
+                                                animate={{ scale: 1, opacity: 1 }}
                                                 transition={{ delay: i * 0.01 }}
                                                 whileHover={{ scale: 1.1, zIndex: 10 }}
-                                                key={i} 
+                                                key={i}
                                                 className={`text-[9px] font-bold px-2.5 py-1.5 border rounded-md cursor-crosshair transition-colors duration-200 group relative ${css}`}
                                             >
                                                 {dist}
@@ -334,9 +349,9 @@ const StateAdminDashboard = () => {
                                     </div>
                                     <div className="flex-1 space-y-2">
                                         <div className="flex items-center justify-between text-xs"><span className="text-purple-400 font-bold">Urban Zones</span><span className="text-white">65%</span></div>
-                                        <div className="w-full h-1.5 bg-slate-800 rounded-full"><motion.div initial={{width:0}} animate={{width:'65%'}} transition={{duration:1}} className="h-full bg-purple-500 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.8)]"></motion.div></div>
+                                        <div className="w-full h-1.5 bg-slate-800 rounded-full"><motion.div initial={{ width: 0 }} animate={{ width: '65%' }} transition={{ duration: 1 }} className="h-full bg-purple-500 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.8)]"></motion.div></div>
                                         <div className="flex items-center justify-between text-xs"><span className="text-indigo-400 font-bold">Rural Links</span><span className="text-white">35%</span></div>
-                                        <div className="w-full h-1.5 bg-slate-800 rounded-full"><motion.div initial={{width:0}} animate={{width:'35%'}} transition={{duration:1, delay:0.2}} className="h-full bg-indigo-500 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.8)]"></motion.div></div>
+                                        <div className="w-full h-1.5 bg-slate-800 rounded-full"><motion.div initial={{ width: 0 }} animate={{ width: '35%' }} transition={{ duration: 1, delay: 0.2 }} className="h-full bg-indigo-500 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.8)]"></motion.div></div>
                                     </div>
                                 </div>
                             </div>
@@ -348,7 +363,7 @@ const StateAdminDashboard = () => {
                                     <span className="text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded text-[10px] font-bold">+2.4% vs last mo.</span>
                                 </div>
                                 <div className="mt-4 relative z-10">
-                                     <svg className="w-full h-8" viewBox="0 0 100 20" preserveAspectRatio="none"><motion.path initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.5 }} d="M0,20 Q10,5 20,15 T40,10 T60,18 T80,5 T100,10" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" className="drop-shadow-[0_0_5px_rgba(16,185,129,0.8)]"/></svg>
+                                    <svg className="w-full h-8" viewBox="0 0 100 20" preserveAspectRatio="none"><motion.path initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.5 }} d="M0,20 Q10,5 20,15 T40,10 T60,18 T80,5 T100,10" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" className="drop-shadow-[0_0_5px_rgba(16,185,129,0.8)]" /></svg>
                                 </div>
                             </div>
                         </div>
@@ -368,7 +383,7 @@ const StateAdminDashboard = () => {
 
             case 'depots':
                 const uniqueRegions = [...new Set(depots.map(d => d.region_name))].filter(Boolean).sort();
-                
+
                 // District view (All)
                 if (selectedRegion === 'All') {
                     const districtStats = uniqueRegions.map(r => ({
@@ -387,19 +402,19 @@ const StateAdminDashboard = () => {
                                     <p className="text-slate-400 text-sm mt-1">Select a district to view its taluks and depots.</p>
                                 </div>
                                 <div className="relative">
-                                    <input 
-                                        type="text" 
-                                        placeholder="Search districts..." 
+                                    <input
+                                        type="text"
+                                        placeholder="Search districts..."
                                         className="bg-slate-900 border border-slate-700 text-white text-sm rounded-full focus:ring-brand-500 focus:border-brand-500 block w-64 p-2.5 pl-4 outline-none shadow-inner"
                                         value={districtSearch}
                                         onChange={(e) => setDistrictSearch(e.target.value)}
                                     />
                                 </div>
                             </div>
-                            
+
                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                                 {districtStats.map(dist => (
-                                    <div 
+                                    <div
                                         key={dist.name}
                                         onClick={() => { setSelectedRegion(dist.name); setDistrictSearch(''); }}
                                         className="bg-slate-900 border border-slate-800 rounded-xl p-5 cursor-pointer hover:border-brand-500 hover:bg-slate-800/80 transition-all group shadow-lg hover:shadow-brand-500/10 flex flex-col items-center text-center relative overflow-hidden"
@@ -427,22 +442,22 @@ const StateAdminDashboard = () => {
                 return (
                     <div className="space-y-6">
                         <div className="flex items-center gap-4 mb-2 border-b border-slate-800 pb-4">
-                            <button 
+                            <button
                                 onClick={() => setSelectedRegion('All')}
                                 className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors"
                                 title="Back to Districts"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                             </button>
                             <div>
                                 <h2 className="text-2xl font-extrabold text-white flex items-center gap-3">
-                                    <Bus className="w-6 h-6 text-emerald-400" /> 
+                                    <Bus className="w-6 h-6 text-emerald-400" />
                                     {selectedRegion.replace(' District', '')} Taluks
                                 </h2>
                                 <p className="text-slate-400 text-sm mt-1">Managing {filteredDepots.length} taluks in {selectedRegion}.</p>
                             </div>
                         </div>
-                        
+
                         <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-xl overflow-hidden p-1">
                             <DataTable
                                 columns={['Taluk Name', 'Code', 'Address / Location', 'Status']}
@@ -454,7 +469,7 @@ const StateAdminDashboard = () => {
                                         <strong className="text-white text-base">{d.name.replace(' Taluk', '')}</strong>
                                     </div>,
                                     <span className="bg-slate-800 text-emerald-400 px-3 py-1.5 rounded-md text-xs font-bold tracking-widest border border-slate-700 shadow-inner">{d.code}</span>,
-                                    <span className="text-slate-400 text-sm flex items-center gap-1.5"><Navigation className="w-3.5 h-3.5 text-slate-500"/> {d.address}</span>,
+                                    <span className="text-slate-400 text-sm flex items-center gap-1.5"><Navigation className="w-3.5 h-3.5 text-slate-500" /> {d.address}</span>,
                                     <StatusBadge status={d.status} />
                                 ])}
                             />
@@ -500,11 +515,11 @@ const StateAdminDashboard = () => {
                                     </motion.div>
                                 ) : activeProposals.map((p, i) => (
                                     <motion.div layout key={p.proposal_id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9, filter: 'blur(10px)', transition: { duration: 0.3 } }} transition={{ delay: i * 0.1, type: 'spring', bounce: 0.3 }} whileHover={{ y: -4, boxShadow: '0 15px 40px -15px rgba(16,185,129, 0.15)' }} className="bg-gradient-to-br from-slate-900/90 to-slate-950 border border-slate-700/80 hover:border-emerald-500/50 rounded-3xl p-6 relative flex flex-col group transition-colors duration-300 shadow-xl overflow-hidden">
-                                        
+
                                         <div className="flex justify-between items-start mb-6 relative z-10">
                                             <span className="bg-slate-800 text-slate-300 text-[10px] font-mono px-3 py-1.5 rounded-md shadow-inner border border-slate-600 font-bold tracking-widest">PROP-{p.proposal_id}</span>
                                             <span className="text-[10px] font-black uppercase text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-md flex items-center gap-1.5 border border-emerald-500/20 shadow-inner">
-                                                <Activity className="w-3 h-3"/> Yield: {p.estimated_demand}
+                                                <Activity className="w-3 h-3" /> Yield: {p.estimated_demand}
                                             </span>
                                         </div>
 
@@ -513,19 +528,19 @@ const StateAdminDashboard = () => {
                                             {/* Animated dotted line */}
                                             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1/3 border-t-2 border-dashed border-slate-600 group-hover:border-emerald-500/50 transition-colors"></div>
                                             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1/3 overflow-hidden h-6">
-                                                <Bus className="w-4 h-4 text-emerald-500 mt-1 origin-left -translate-x-full group-hover:translate-x-[400%] transition-transform duration-[2s] ease-linear"/>
+                                                <Bus className="w-4 h-4 text-emerald-500 mt-1 origin-left -translate-x-full group-hover:translate-x-[400%] transition-transform duration-[2s] ease-linear" />
                                             </div>
 
                                             <div className="text-center w-[45%] z-10">
-                                                <div className="w-10 h-10 mx-auto bg-slate-800 rounded-full flex items-center justify-center border border-slate-700 mb-2 shadow-inner group-hover:border-emerald-500/30 group-hover:bg-emerald-500/10 transition-colors"><MapPin className="w-4 h-4 text-slate-400 group-hover:text-emerald-400"/></div>
+                                                <div className="w-10 h-10 mx-auto bg-slate-800 rounded-full flex items-center justify-center border border-slate-700 mb-2 shadow-inner group-hover:border-emerald-500/30 group-hover:bg-emerald-500/10 transition-colors"><MapPin className="w-4 h-4 text-slate-400 group-hover:text-emerald-400" /></div>
                                                 <h4 className="text-xs font-black text-white truncate px-1">{p.source}</h4>
                                             </div>
                                             <div className="text-center w-[45%] z-10">
-                                                <div className="w-10 h-10 mx-auto bg-slate-800 rounded-full flex items-center justify-center border border-slate-700 mb-2 shadow-inner group-hover:border-brand-500/30 group-hover:bg-brand-500/10 transition-colors"><MapPin className="w-4 h-4 text-slate-400 group-hover:text-brand-400"/></div>
+                                                <div className="w-10 h-10 mx-auto bg-slate-800 rounded-full flex items-center justify-center border border-slate-700 mb-2 shadow-inner group-hover:border-brand-500/30 group-hover:bg-brand-500/10 transition-colors"><MapPin className="w-4 h-4 text-slate-400 group-hover:text-brand-400" /></div>
                                                 <h4 className="text-xs font-black text-white truncate px-1">{p.destination}</h4>
                                             </div>
                                         </div>
-                                        
+
                                         <div className="grid grid-cols-2 gap-4 mb-6 bg-slate-950/70 p-4 rounded-xl border border-slate-800/80 mt-auto">
                                             <div>
                                                 <div className="text-[10px] uppercase text-slate-500 font-bold mb-1">Total Distance</div>
@@ -542,13 +557,13 @@ const StateAdminDashboard = () => {
                                                 triggerGlobalAlert('success', `Proposal PROP-${p.proposal_id} approved. Dispatch team notified.`, 'Moderate');
                                                 setHiddenProposals(prev => [...prev, p.proposal_id]);
                                             }} className="flex-1 bg-emerald-600/10 hover:bg-emerald-600 text-emerald-400 hover:text-white py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all border border-emerald-500/30 flex justify-center items-center gap-2 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:-translate-y-1">
-                                                <Check className="w-4 h-4"/> Approve
+                                                <Check className="w-4 h-4" /> Approve
                                             </button>
                                             <button onClick={() => {
                                                 triggerGlobalAlert('error', `Proposal PROP-${p.proposal_id} rejected. Return to planning.`, 'Low');
                                                 setHiddenProposals(prev => [...prev, p.proposal_id]);
                                             }} className="flex-1 bg-rose-600/10 hover:bg-rose-500 text-rose-400 hover:text-white py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all border border-rose-500/20 flex justify-center items-center gap-2 hover:shadow-[0_0_20px_rgba(244,63,94,0.4)] hover:-translate-y-1">
-                                                <X className="w-4 h-4"/> Reject
+                                                <X className="w-4 h-4" /> Reject
                                             </button>
                                         </div>
                                     </motion.div>
@@ -566,7 +581,7 @@ const StateAdminDashboard = () => {
 
                 return (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 max-w-5xl">
-                       <div className="flex justify-between items-end border-b border-slate-800 pb-4 mb-6 relative">
+                        <div className="flex justify-between items-end border-b border-slate-800 pb-4 mb-6 relative">
                             <div className="absolute left-0 top-0 w-32 h-32 bg-brand-500/10 blur-3xl rounded-full pointer-events-none"></div>
                             <div>
                                 <h2 className="text-3xl font-black text-white flex items-center gap-4 tracking-tight">
@@ -578,7 +593,7 @@ const StateAdminDashboard = () => {
                                 <p className="text-slate-400 mt-2 font-medium">Issue mass-alerts directly to driver terminals and passenger apps.</p>
                             </div>
                             <button onClick={() => setIsCreatingAlert(true)} className="bg-gradient-to-r from-brand-600 to-purple-600 hover:from-brand-500 hover:to-purple-500 text-white font-black px-6 py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(168,85,247,0.4)] hover:shadow-[0_0_25px_rgba(168,85,247,0.6)] flex items-center gap-2 hover:scale-105 active:scale-95 text-sm border-b-2 border-brand-700 active:border-b-0 active:translate-y-px z-10 relative">
-                                <Plus className="w-5 h-5"/> New Global Alert
+                                <Plus className="w-5 h-5" /> New Global Alert
                             </button>
                         </div>
 
@@ -588,7 +603,7 @@ const StateAdminDashboard = () => {
                                     <div className="absolute inset-y-0 left-0 w-1 bg-slate-700 group-hover:bg-brand-500 transition-colors"></div>
                                     <div className="flex items-center gap-5 pl-2">
                                         <div className="w-14 h-14 bg-slate-800/80 rounded-2xl flex items-center justify-center border border-slate-700 group-hover:border-brand-500/50 transition-colors shadow-inner flex-shrink-0">
-                                            {alt.type === 'Weather' ? <CloudRain className="w-7 h-7 text-sky-400 drop-shadow-[0_0_8px_rgba(56,189,248,0.5)]" /> : <Radio className="w-7 h-7 text-brand-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]"/>}
+                                            {alt.type === 'Weather' ? <CloudRain className="w-7 h-7 text-sky-400 drop-shadow-[0_0_8px_rgba(56,189,248,0.5)]" /> : <Radio className="w-7 h-7 text-brand-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]" />}
                                         </div>
                                         <div>
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-2">
@@ -596,13 +611,13 @@ const StateAdminDashboard = () => {
                                                 <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border shadow-inner max-w-max ${alt.priority === 'High' ? 'bg-orange-500/10 text-orange-400 border-orange-500/30' : 'bg-brand-500/10 text-brand-400 border-brand-500/30'}`}>{alt.priority} Priority</span>
                                             </div>
                                             <div className="text-xs font-bold text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1 uppercase tracking-wider bg-slate-950/50 px-3 py-1.5 rounded-lg border border-slate-800/80 w-fit">
-                                                <span className="flex items-center gap-1.5"><Globe className="w-3.5 h-3.5 opacity-70"/> {alt.target}</span> 
-                                                <span className="text-slate-600">&bull;</span> 
-                                                <span className="flex items-center gap-1.5 text-indigo-300"><Clock className="w-3.5 h-3.5 opacity-70"/> {alt.time}</span>
+                                                <span className="flex items-center gap-1.5"><Globe className="w-3.5 h-3.5 opacity-70" /> {alt.target}</span>
+                                                <span className="text-slate-600">&bull;</span>
+                                                <span className="flex items-center gap-1.5 text-indigo-300"><Clock className="w-3.5 h-3.5 opacity-70" /> {alt.time}</span>
                                             </div>
                                         </div>
                                     </div>
-                                    <button className="sm:self-center self-end w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-rose-500/20 hover:text-rose-400 transition-colors border border-slate-700 hover:border-rose-500/30 text-slate-500 shrink-0"><Trash2 className="w-4 h-4"/></button>
+                                    <button className="sm:self-center self-end w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-rose-500/20 hover:text-rose-400 transition-colors border border-slate-700 hover:border-rose-500/30 text-slate-500 shrink-0"><Trash2 className="w-4 h-4" /></button>
                                 </motion.div>
                             ))}
                         </div>
@@ -615,9 +630,9 @@ const StateAdminDashboard = () => {
                     { id: "INC-822", type: "Traffic Blockade", severity: "Medium", location: "Chennai - Tambaram Route", description: "Local protest blocking the main arterial road. 12 buses currently stuck or rerouting.", status: "Rerouting Active", time: "25 Mins Ago", coord: "12.924° N, 80.110° E" },
                     { id: "INC-839", type: "Minor Accident", severity: "Critical", location: "Madurai Ring Road", description: "Rear-ended by a commercial truck. Passengers safe, minor damages. Police arriving.", status: "Emergency Response", time: "Just Now", coord: "9.896° N, 78.145° E" }
                 ];
-                
+
                 const activeIncidents = initialIncidents.filter(inc => !hiddenIncidents.includes(inc.id));
-                
+
                 const handleTakeControl = (inc) => {
                     triggerGlobalAlert('info', `State Command assumed direct control of ${inc.id}. Central response protocols activated.`, 'High');
                     setHiddenIncidents(prev => [...prev, inc.id]);
@@ -655,27 +670,27 @@ const StateAdminDashboard = () => {
                                         {inc.severity === 'Critical' && <div className="absolute top-0 right-0 w-40 h-40 bg-rose-500/10 blur-[50px] rounded-full pointer-events-none transition-all group-hover:bg-rose-500/20"></div>}
                                         {inc.severity === 'High' && <div className="absolute top-0 right-0 w-40 h-40 bg-orange-500/10 blur-[50px] rounded-full pointer-events-none transition-all group-hover:bg-orange-500/20"></div>}
                                         {inc.severity === 'Medium' && <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/10 blur-[50px] rounded-full pointer-events-none transition-all group-hover:bg-amber-500/20"></div>}
-                                        
+
                                         <div className="flex justify-between items-start mb-5 relative z-10">
                                             <span className="bg-slate-800 text-slate-300 text-[10px] font-mono px-3 py-1.5 rounded-md shadow-inner border border-slate-600 font-bold tracking-widest">{inc.id}</span>
-                                            <span className="text-[10px] font-black uppercase text-indigo-400 bg-indigo-500/10 px-3 py-1.5 rounded-md flex items-center gap-1.5 border border-indigo-500/20 shadow-inner"><Clock className="w-3 h-3"/> {inc.time}</span>
+                                            <span className="text-[10px] font-black uppercase text-indigo-400 bg-indigo-500/10 px-3 py-1.5 rounded-md flex items-center gap-1.5 border border-indigo-500/20 shadow-inner"><Clock className="w-3 h-3" /> {inc.time}</span>
                                         </div>
-                                        
+
                                         <h3 className="text-xl font-black text-white mb-3 relative z-10 tracking-wide">{inc.type}</h3>
-                                        
+
                                         <div className="bg-slate-950/70 rounded-2xl p-4 mb-5 border border-slate-800/80 relative z-10 shadow-inner mt-2 flex-grow">
-                                            <div className="text-[10px] uppercase text-slate-500 font-bold mb-1 flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-indigo-400"/> {inc.location}</div>
+                                            <div className="text-[10px] uppercase text-slate-500 font-bold mb-1 flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-indigo-400" /> {inc.location}</div>
                                             <div className="text-[11px] text-slate-500 font-mono mb-3 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded shadow-inner w-fit">{inc.coord}</div>
                                             <p className="text-sm text-slate-300 leading-relaxed break-words font-medium">"{inc.description}"</p>
                                         </div>
 
                                         <div className="flex flex-col gap-3 relative z-10 mt-auto pt-1">
                                             <div className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center shadow-inner">
-                                            <div className="text-[10px] uppercase text-slate-500 font-bold">Current Status</div>
-                                            <div className="text-xs font-black text-white uppercase tracking-wider">{inc.status}</div>
+                                                <div className="text-[10px] uppercase text-slate-500 font-bold">Current Status</div>
+                                                <div className="text-xs font-black text-white uppercase tracking-wider">{inc.status}</div>
                                             </div>
                                             <button onClick={() => handleTakeControl(inc)} className="w-full bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white py-3 rounded-xl text-sm font-black transition-all border border-indigo-500/30 flex justify-center items-center gap-2 group/action hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]">
-                                                Take Control <Zap className="w-4 h-4 group-hover/action:text-amber-400 transition-colors"/>
+                                                Take Control <Zap className="w-4 h-4 group-hover/action:text-amber-400 transition-colors" />
                                             </button>
                                         </div>
                                     </motion.div>
@@ -686,6 +701,22 @@ const StateAdminDashboard = () => {
                 );
 
             case 'complaints':
+                // Real SQLite complaints escalated to or pending state level review
+                const backendEscalatedComplaints = Array.isArray(complaints) ? complaints.map(c => ({
+                    id: `CMP-${c.complaint_id || c.id}`,
+                    raw_id: c.complaint_id || c.id,
+                    category: c.category || 'General Complaint',
+                    severity: c.severity || (c.escalation_level === 3 ? 'Critical' : 'High'),
+                    location: `${c.registration_number || c.bus_number || 'Depot Fleet'} (${c.route_name || 'Highway Sector'})`,
+                    customer: `${c.user_id || 'Passenger'} (Ticket #${c.complaint_id})`,
+                    reportedAt: c.created_date ? new Date(c.created_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today',
+                    depotAdmin: { name: 'Dharmapuri Depot', status: c.escalation_level > 1 ? 'Escalated (>24h SLA)' : 'Under Depot Review' },
+                    regionalAdmin: { name: 'Salem Division', status: c.escalation_level >= 3 ? 'Escalated (>48h SLA)' : 'Pending Region Action' },
+                    description: c.description || c.text || 'No description provided.',
+                    resolution_remarks: c.resolution_remarks,
+                    photo_url: c.photo_url
+                })) : [];
+
                 const initialEscalatedComplaints = [
                     {
                         id: "CMP-8942",
@@ -744,15 +775,29 @@ const StateAdminDashboard = () => {
                     }
                 ];
 
-                const escalatedComplaints = initialEscalatedComplaints.filter(c => !hiddenComplaints.includes(c.id));
+                const combinedComplaints = [
+                    ...backendEscalatedComplaints,
+                    ...initialEscalatedComplaints.filter(ic => !backendEscalatedComplaints.some(bc => bc.id === ic.id))
+                ];
 
-                const handleResolveCompensate = (id) => {
+                const escalatedComplaints = combinedComplaints.filter(c => !hiddenComplaints.includes(c.id));
+
+                const handleResolveCompensate = async (id) => {
+                    try {
+                        const numId = id.toString().replace(/\D/g, '') || id;
+                        await axios.put(`/api/state-admin/complaints/${numId}/resolve`, {
+                            remarks: 'Resolved and customer compensated directly by State Transport Authority HQ Command.'
+                        });
+                    } catch (e) {
+                        console.error('State resolution API error:', e);
+                    }
                     triggerGlobalAlert(
                         'info',
                         `Complaint ${id} was resolved. Customer compensated directly by State Admin.`,
                         'Moderate'
                     );
                     setHiddenComplaints(prev => [...prev, id]);
+                    loadTabData('complaints');
                 };
 
                 const handleIssueDemerit = (id, depotAdmin, regionalAdmin) => {
@@ -791,131 +836,146 @@ const StateAdminDashboard = () => {
 
                         <div className="grid grid-cols-1 gap-6">
                             <AnimatePresence>
-                            {escalatedComplaints.length === 0 ? (
-                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-12 text-center text-slate-400 font-bold border border-slate-800 rounded-2xl bg-slate-900/50">
-                                    All state-level escalations have been resolved! 
-                                </motion.div>
-                            ) : escalatedComplaints.map((comp) => (
-                                <motion.div 
-                                    key={comp.id} 
-                                    initial={{ opacity: 0, y: 30, scale: 0.95 }} 
-                                    animate={{ opacity: 1, y: 0, scale: 1 }} 
-                                    exit={{ opacity: 0, scale: 0.9, height: 0, marginBottom: 0, overflow: 'hidden' }}
-                                    transition={{ duration: 0.5, type: 'spring', bounce: 0.4 }} 
-                                    whileHover={{ y: -6, boxShadow: '0 25px 50px -12px rgba(225,29,72, 0.15)' }}
-                                    className="bg-gradient-to-r from-slate-900 to-[#0f1118] border border-slate-700/60 rounded-3xl p-6 relative overflow-hidden flex flex-col xl:flex-row gap-8 hover:border-rose-500/50 transition-colors duration-500 group"
-                                >
-                                    {/* Left: Complaint Details */}
-                                    <div className="flex-1 space-y-4 relative z-10">
-                                        <div className="flex flex-col sm:flex-row justify-between sm:items-start gap-2">
+                                {escalatedComplaints.length === 0 ? (
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-12 text-center text-slate-400 font-bold border border-slate-800 rounded-2xl bg-slate-900/50">
+                                        All state-level escalations have been resolved!
+                                    </motion.div>
+                                ) : escalatedComplaints.map((comp) => (
+                                    <motion.div
+                                        key={comp.id}
+                                        initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.9, height: 0, marginBottom: 0, overflow: 'hidden' }}
+                                        transition={{ duration: 0.5, type: 'spring', bounce: 0.4 }}
+                                        whileHover={{ y: -6, boxShadow: '0 25px 50px -12px rgba(225,29,72, 0.15)' }}
+                                        className="bg-gradient-to-r from-slate-900 to-[#0f1118] border border-slate-700/60 rounded-3xl p-6 relative overflow-hidden flex flex-col xl:flex-row gap-8 hover:border-rose-500/50 transition-colors duration-500 group"
+                                    >
+                                        {/* Left: Complaint Details */}
+                                        <div className="flex-1 space-y-4 relative z-10">
+                                            <div className="flex flex-col sm:flex-row justify-between sm:items-start gap-2">
+                                                <div>
+                                                    <span className="bg-slate-800/80 border border-slate-600 text-slate-300 px-3 py-1 text-xs font-bold rounded-md uppercase tracking-widest font-mono mr-3 inline-block shadow-inner">
+                                                        {comp.id}
+                                                    </span>
+                                                    <span className={`px-3 py-1 text-xs font-black rounded-md uppercase tracking-widest shadow-inner inline-block ${comp.severity === 'Critical' ? 'bg-rose-500/10 border border-rose-500/30 text-rose-400' : 'bg-amber-500/10 border border-amber-500/30 text-amber-400'}`}>
+                                                        {comp.severity} Priority
+                                                    </span>
+                                                </div>
+                                                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">{comp.reportedAt}</div>
+                                            </div>
+
                                             <div>
-                                                <span className="bg-slate-800/80 border border-slate-600 text-slate-300 px-3 py-1 text-xs font-bold rounded-md uppercase tracking-widest font-mono mr-3 inline-block shadow-inner">
-                                                    {comp.id}
-                                                </span>
-                                                <span className={`px-3 py-1 text-xs font-black rounded-md uppercase tracking-widest shadow-inner inline-block ${comp.severity === 'Critical' ? 'bg-rose-500/10 border border-rose-500/30 text-rose-400' : 'bg-amber-500/10 border border-amber-500/30 text-amber-400'}`}>
-                                                    {comp.severity} Priority
-                                                </span>
-                                            </div>
-                                            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">{comp.reportedAt}</div>
-                                        </div>
-                                        
-                                        <div>
-                                            <h3 className="text-xl font-black text-white">{comp.category}</h3>
-                                            <p className="text-slate-400 text-sm mt-2 leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800 shadow-inner">
-                                                "{comp.description}"
-                                            </p>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 shadow-inner">
-                                                    <MapPin className="w-4 h-4 text-indigo-400"/>
-                                                </div>
-                                                <div>
-                                                    <div className="text-[10px] uppercase text-slate-500 font-bold tracking-widest">Location / Scope</div>
-                                                    <div className="text-sm font-bold text-slate-200">{comp.location}</div>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 shadow-inner">
-                                                    <Users className="w-4 h-4 text-emerald-400"/>
-                                                </div>
-                                                <div>
-                                                    <div className="text-[10px] uppercase text-slate-500 font-bold tracking-widest">Customer Direct</div>
-                                                    <div className="text-sm font-bold text-slate-200">{comp.customer}</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Vertical/Horizontal Divider based on screen */}
-                                    <div className="hidden xl:block w-px bg-gradient-to-b from-transparent via-slate-700 to-transparent"></div>
-                                    <div className="block xl:hidden h-px bg-gradient-to-r from-transparent via-slate-700 to-transparent my-2"></div>
-
-                                    {/* Right: Escalation Map & Action */}
-                                    <div className="w-full xl:w-[400px] flex flex-col justify-between relative z-10 shrink-0">
-                                        
-                                        <div className="relative pl-8 space-y-9 ml-2 mt-2 h-full flex flex-col justify-center pb-8 pt-4">
-                                            {/* Glowing Animated Line */}
-                                            <div className="absolute left-0 top-8 bottom-16 w-0.5 bg-slate-800/80 rounded-full">
-                                                <motion.div 
-                                                    initial={{ height: 0 }}
-                                                    animate={{ height: '100%' }}
-                                                    transition={{ duration: 1.5, ease: "easeInOut", delay: 0.2 }}
-                                                    className="w-full rounded-full bg-gradient-to-b from-indigo-500 via-rose-500 to-rose-600 shadow-[0_0_12px_rgba(244,63,94,0.9)]"
-                                                ></motion.div>
-                                            </div>
-
-                                            {/* Phase 1 */}
-                                            <div className="relative group/step">
-                                                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2 }} className="absolute -left-[41px] bg-slate-900 border-2 border-indigo-500 w-[20px] h-[20px] rounded-full z-10 shadow-[0_0_10px_rgba(99,102,241,0.5)] flex items-center justify-center">
-                                                    <div className="w-2 h-2 bg-indigo-400 rounded-full"></div>
-                                                </motion.div>
-                                                <h4 className="text-xs font-black text-white uppercase tracking-wider">Level 1: Depot Admin</h4>
-                                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end mt-1.5 gap-1">
-                                                    <div className="text-[11px] text-slate-400 font-medium font-mono bg-slate-900/50 px-2 py-1 rounded inline-block border border-slate-700">Resp: {comp.depotAdmin.name}</div>
-                                                    <span className="text-[9px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-400 px-2 py-1 rounded border border-rose-500/20 self-start sm:self-auto shrink-0 shadow-inner block w-fit">{comp.depotAdmin.status}</span>
-                                                </div>
-                                            </div>
-                                            {/* Phase 2 */}
-                                            <div className="relative group/step mt-6">
-                                                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.8 }} className="absolute -left-[41px] bg-slate-900 border-2 border-rose-400 w-[20px] h-[20px] rounded-full z-10 shadow-[0_0_10px_rgba(244,63,94,0.5)] flex items-center justify-center">
-                                                    <div className="w-2 h-2 bg-rose-400 rounded-full"></div>
-                                                </motion.div>
-                                                <h4 className="text-xs font-black text-white uppercase tracking-wider">Level 2: Regional Admin</h4>
-                                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end mt-1.5 gap-1">
-                                                    <div className="text-[11px] text-slate-400 font-medium font-mono bg-slate-900/50 px-2 py-1 rounded inline-block border border-slate-700">Resp: {comp.regionalAdmin.name}</div>
-                                                    <span className="text-[9px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-400 px-2 py-1 rounded border border-rose-500/20 self-start sm:self-auto shrink-0 shadow-inner block w-fit">{comp.regionalAdmin.status}</span>
-                                                </div>
-                                            </div>
-                                            {/* Phase 3 */}
-                                            <div className="relative mt-6 group/step">
-                                                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 1.4 }} className="absolute -left-[47px] bg-rose-600 border-[4px] border-slate-900 w-[32px] h-[32px] rounded-full shadow-[0_0_20px_rgba(225,29,72,0.8)] animate-[pulse_1.5s_ease-in-out_infinite] flex items-center justify-center text-white z-20 hover:scale-110 transition-transform">
-                                                    <AlertTriangle className="w-4 h-4" />
-                                                </motion.div>
-                                                <h4 className="text-[13px] font-black text-rose-400 uppercase tracking-wider bg-rose-500/5 px-3 py-1 rounded-lg border border-rose-500/10 inline-block">Level 3: State Command</h4>
-                                                <p className="text-[11px] text-slate-300 font-semibold mt-2.5 max-w-[280px] leading-relaxed tracking-wide border-l-2 border-rose-500/50 pl-3">
-                                                    SLA severely breached. Mandatory intervention required to resolve issue and penalize staff.
+                                                <h3 className="text-xl font-black text-white">{comp.category}</h3>
+                                                <p className="text-slate-400 text-sm mt-2 leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800 shadow-inner">
+                                                    "{comp.description}"
                                                 </p>
+
+                                                {comp.photo_url && (
+                                                    <div
+                                                        onClick={() => setPhotoModalUrl(comp.photo_url)}
+                                                        className="mt-3 bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center gap-3 cursor-pointer hover:border-rose-500/50 transition group/img"
+                                                    >
+                                                        <img src={comp.photo_url} alt="Passenger proof" className="w-12 h-12 object-cover rounded-lg border border-slate-700 shrink-0" />
+                                                        <div className="text-left">
+                                                            <span className="text-xs font-bold text-rose-400 flex items-center gap-1.5">
+                                                                <Camera className="w-3.5 h-3.5" /> Passenger Photo Evidence
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-500 block">Click to inspect high-resolution photo proof</span>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 shadow-inner">
+                                                        <MapPin className="w-4 h-4 text-indigo-400" />
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[10px] uppercase text-slate-500 font-bold tracking-widest">Location / Scope</div>
+                                                        <div className="text-sm font-bold text-slate-200">{comp.location}</div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 shadow-inner">
+                                                        <Users className="w-4 h-4 text-emerald-400" />
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[10px] uppercase text-slate-500 font-bold tracking-widest">Customer Direct</div>
+                                                        <div className="text-sm font-bold text-slate-200">{comp.customer}</div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        <div className="flex flex-col gap-3 mt-2 pt-5 border-t border-slate-800/80">
-                                            <button onClick={() => handleResolveCompensate(comp.id)} className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black py-3 rounded-xl shadow-[0_4px_15px_rgba(16,185,129,0.3)] hover:shadow-[0_4px_25px_rgba(16,185,129,0.5)] transition-all flex items-center justify-center gap-2 text-sm border-b-2 border-emerald-700 active:border-b-0 active:translate-y-px">
-                                                <CheckCircle2 className="w-5 h-5"/> Resolve & Compensate Customer
-                                            </button>
-                                            <button onClick={() => handleIssueDemerit(comp.id, comp.depotAdmin.name.split(' (')[0], comp.regionalAdmin.name.split(' (')[0])} className="w-full bg-slate-800/80 hover:bg-rose-950/80 border border-slate-700 hover:border-rose-500/50 text-slate-300 hover:text-rose-100 font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-[11px] uppercase tracking-wider group shadow-inner">
-                                                Issue Demerits to Negligent Admins <Zap className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:animate-bounce transition-colors" />
-                                            </button>
+                                        {/* Vertical/Horizontal Divider based on screen */}
+                                        <div className="hidden xl:block w-px bg-gradient-to-b from-transparent via-slate-700 to-transparent"></div>
+                                        <div className="block xl:hidden h-px bg-gradient-to-r from-transparent via-slate-700 to-transparent my-2"></div>
+
+                                        {/* Right: Escalation Map & Action */}
+                                        <div className="w-full xl:w-[400px] flex flex-col justify-between relative z-10 shrink-0">
+
+                                            <div className="relative pl-8 space-y-9 ml-2 mt-2 h-full flex flex-col justify-center pb-8 pt-4">
+                                                {/* Glowing Animated Line */}
+                                                <div className="absolute left-0 top-8 bottom-16 w-0.5 bg-slate-800/80 rounded-full">
+                                                    <motion.div
+                                                        initial={{ height: 0 }}
+                                                        animate={{ height: '100%' }}
+                                                        transition={{ duration: 1.5, ease: "easeInOut", delay: 0.2 }}
+                                                        className="w-full rounded-full bg-gradient-to-b from-indigo-500 via-rose-500 to-rose-600 shadow-[0_0_12px_rgba(244,63,94,0.9)]"
+                                                    ></motion.div>
+                                                </div>
+
+                                                {/* Phase 1 */}
+                                                <div className="relative group/step">
+                                                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2 }} className="absolute -left-[41px] bg-slate-900 border-2 border-indigo-500 w-[20px] h-[20px] rounded-full z-10 shadow-[0_0_10px_rgba(99,102,241,0.5)] flex items-center justify-center">
+                                                        <div className="w-2 h-2 bg-indigo-400 rounded-full"></div>
+                                                    </motion.div>
+                                                    <h4 className="text-xs font-black text-white uppercase tracking-wider">Level 1: Depot Admin</h4>
+                                                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end mt-1.5 gap-1">
+                                                        <div className="text-[11px] text-slate-400 font-medium font-mono bg-slate-900/50 px-2 py-1 rounded inline-block border border-slate-700">Resp: {comp.depotAdmin.name}</div>
+                                                        <span className="text-[9px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-400 px-2 py-1 rounded border border-rose-500/20 self-start sm:self-auto shrink-0 shadow-inner block w-fit">{comp.depotAdmin.status}</span>
+                                                    </div>
+                                                </div>
+                                                {/* Phase 2 */}
+                                                <div className="relative group/step mt-6">
+                                                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.8 }} className="absolute -left-[41px] bg-slate-900 border-2 border-rose-400 w-[20px] h-[20px] rounded-full z-10 shadow-[0_0_10px_rgba(244,63,94,0.5)] flex items-center justify-center">
+                                                        <div className="w-2 h-2 bg-rose-400 rounded-full"></div>
+                                                    </motion.div>
+                                                    <h4 className="text-xs font-black text-white uppercase tracking-wider">Level 2: Regional Admin</h4>
+                                                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end mt-1.5 gap-1">
+                                                        <div className="text-[11px] text-slate-400 font-medium font-mono bg-slate-900/50 px-2 py-1 rounded inline-block border border-slate-700">Resp: {comp.regionalAdmin.name}</div>
+                                                        <span className="text-[9px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-400 px-2 py-1 rounded border border-rose-500/20 self-start sm:self-auto shrink-0 shadow-inner block w-fit">{comp.regionalAdmin.status}</span>
+                                                    </div>
+                                                </div>
+                                                {/* Phase 3 */}
+                                                <div className="relative mt-6 group/step">
+                                                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 1.4 }} className="absolute -left-[47px] bg-rose-600 border-[4px] border-slate-900 w-[32px] h-[32px] rounded-full shadow-[0_0_20px_rgba(225,29,72,0.8)] animate-[pulse_1.5s_ease-in-out_infinite] flex items-center justify-center text-white z-20 hover:scale-110 transition-transform">
+                                                        <AlertTriangle className="w-4 h-4" />
+                                                    </motion.div>
+                                                    <h4 className="text-[13px] font-black text-rose-400 uppercase tracking-wider bg-rose-500/5 px-3 py-1 rounded-lg border border-rose-500/10 inline-block">Level 3: State Command</h4>
+                                                    <p className="text-[11px] text-slate-300 font-semibold mt-2.5 max-w-[280px] leading-relaxed tracking-wide border-l-2 border-rose-500/50 pl-3">
+                                                        SLA severely breached. Mandatory intervention required to resolve issue and penalize staff.
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex flex-col gap-3 mt-2 pt-5 border-t border-slate-800/80">
+                                                <button onClick={() => handleResolveCompensate(comp.id)} className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black py-3 rounded-xl shadow-[0_4px_15px_rgba(16,185,129,0.3)] hover:shadow-[0_4px_25px_rgba(16,185,129,0.5)] transition-all flex items-center justify-center gap-2 text-sm border-b-2 border-emerald-700 active:border-b-0 active:translate-y-px">
+                                                    <CheckCircle2 className="w-5 h-5" /> Resolve & Compensate Customer
+                                                </button>
+                                                <button onClick={() => handleIssueDemerit(comp.id, comp.depotAdmin.name.split(' (')[0], comp.regionalAdmin.name.split(' (')[0])} className="w-full bg-slate-800/80 hover:bg-rose-950/80 border border-slate-700 hover:border-rose-500/50 text-slate-300 hover:text-rose-100 font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-[11px] uppercase tracking-wider group shadow-inner">
+                                                    Issue Demerits to Negligent Admins <Zap className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:animate-bounce transition-colors" />
+                                                </button>
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    {/* Subdued Glow effect */}
-                                    {comp.severity === 'Critical' && (
-                                        <div className="absolute top-1/2 -right-10 -translate-y-1/2 w-72 h-72 bg-rose-500/10 rounded-full blur-[80px] pointer-events-none group-hover:bg-rose-500/20 transition-colors duration-700"></div>
-                                    )}
-                                </motion.div>
-                            ))}
+
+                                        {/* Subdued Glow effect */}
+                                        {comp.severity === 'Critical' && (
+                                            <div className="absolute top-1/2 -right-10 -translate-y-1/2 w-72 h-72 bg-rose-500/10 rounded-full blur-[80px] pointer-events-none group-hover:bg-rose-500/20 transition-colors duration-700"></div>
+                                        )}
+                                    </motion.div>
+                                ))}
                             </AnimatePresence>
                         </div>
                     </motion.div>
@@ -984,7 +1044,7 @@ const StateAdminDashboard = () => {
                     districtsPerform[3].rev = 15;
                     titleStr = "Quarterly";
                 }
-                
+
                 const maxRev = Math.max(...revData) * 1.1;
 
                 return (
@@ -996,7 +1056,7 @@ const StateAdminDashboard = () => {
                                 </h2>
                                 <p className="text-slate-400 mt-1">Statewide macro-economic visualizations and revenue tracking.</p>
                             </div>
-                            <select 
+                            <select
                                 value={analyticsTimeframe}
                                 onChange={(e) => setAnalyticsTimeframe(e.target.value)}
                                 className="bg-slate-900 border border-slate-700 text-white text-sm rounded-lg p-2.5 focus:ring-brand-500 outline-none shadow-inner"
@@ -1006,20 +1066,20 @@ const StateAdminDashboard = () => {
                                 <option>This Quarter</option>
                             </select>
                         </div>
-                        
+
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             {/* Bar Chart Panel */}
                             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl"></div>
                                 <h3 className="text-slate-300 font-bold mb-6 flex justify-between items-center relative z-10">
                                     {titleStr} Gross Revenue (Lakhs ₹)
-                                    <TrendingUp className="text-emerald-400 w-5 h-5"/>
+                                    <TrendingUp className="text-emerald-400 w-5 h-5" />
                                 </h3>
                                 <div className="h-64 flex items-end gap-4 justify-between relative mt-4">
                                     {revData.map((val, idx) => (
                                         <div key={idx} className="flex-1 flex flex-col items-center gap-2 group relative z-10">
                                             <div className="relative w-full h-[200px] flex items-end bg-slate-800/30 rounded-t-lg overflow-hidden border-b border-slate-700">
-                                                <motion.div 
+                                                <motion.div
                                                     key={analyticsTimeframe}
                                                     initial={{ height: 0 }} animate={{ height: `${(val / maxRev) * 100}%` }} transition={{ duration: 0.8, delay: idx * 0.05 }}
                                                     className="w-full bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t-lg relative group-hover:from-emerald-500 group-hover:to-emerald-300 transition-colors shadow-[0_0_15px_rgba(52,211,153,0.3)]"
@@ -1038,7 +1098,7 @@ const StateAdminDashboard = () => {
                                 <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl"></div>
                                 <h3 className="text-slate-300 font-bold mb-6 flex justify-between items-center relative z-10">
                                     Revenue Contribution by Zone
-                                    <PieChart className="text-purple-400 w-5 h-5"/>
+                                    <PieChart className="text-purple-400 w-5 h-5" />
                                 </h3>
                                 <div className="space-y-6 mt-4 relative z-10">
                                     {districtsPerform.map((d, i) => (
@@ -1061,9 +1121,9 @@ const StateAdminDashboard = () => {
                             </h3>
                             <div className="relative w-full h-[340px] mt-6 text-[11px] font-medium font-sans">
                                 <div className="absolute inset-x-0 inset-y-0 bottom-8 pl-12 pr-6 z-0">
-                                   <div className="h-full w-full relative">
+                                    <div className="h-full w-full relative">
                                         {[100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0].map((val, i) => (
-                                            <div key={i} className="flex items-center absolute w-full -mt-2.5 h-5" style={{ top: `${(i / 10) * 100}%`}}>
+                                            <div key={i} className="flex items-center absolute w-full -mt-2.5 h-5" style={{ top: `${(i / 10) * 100}%` }}>
                                                 <div className="absolute -left-12 w-10 text-right text-slate-500">{val}%</div>
                                                 <div className="flex-1 h-px bg-slate-800/60"></div>
                                             </div>
@@ -1073,12 +1133,12 @@ const StateAdminDashboard = () => {
                                         <svg className="absolute inset-0 h-full w-full pointer-events-none overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
                                             <defs>
                                                 <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4"/>
-                                                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0"/>
+                                                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4" />
+                                                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
                                                 </linearGradient>
                                             </defs>
                                             {/* Gradient Fill */}
-                                            <motion.path 
+                                            <motion.path
                                                 key={`fill-${analyticsTimeframe}`}
                                                 initial={{ opacity: 0 }}
                                                 animate={{ opacity: 1 }}
@@ -1087,15 +1147,15 @@ const StateAdminDashboard = () => {
                                                 fill="url(#curveGradient)"
                                             />
                                             {/* Smooth Curved Line */}
-                                            <motion.path 
+                                            <motion.path
                                                 key={`path-${analyticsTimeframe}`}
                                                 initial={{ pathLength: 0 }}
                                                 animate={{ pathLength: 1 }}
                                                 transition={{ duration: 1.5, ease: "easeInOut" }}
                                                 d={trendPath}
                                                 fill="none"
-                                                stroke="#3b82f6" 
-                                                strokeWidth="2.5" 
+                                                stroke="#3b82f6"
+                                                strokeWidth="2.5"
                                                 vectorEffect="non-scaling-stroke"
                                                 className="drop-shadow-[0_0_8px_rgba(59,130,246,0.6)]"
                                             />
@@ -1104,15 +1164,15 @@ const StateAdminDashboard = () => {
                                         {/* Overlay SVG for Dots */}
                                         <svg className="absolute inset-0 h-full w-full pointer-events-none overflow-visible">
                                             {trendDots.map((p, i) => (
-                                                <motion.circle 
+                                                <motion.circle
                                                     key={`${analyticsTimeframe}-${i}`}
                                                     initial={{ scale: 0, opacity: 0 }}
                                                     animate={{ scale: 1, opacity: 1 }}
                                                     transition={{ delay: 1.0 + (i * 0.1), duration: 0.3 }}
-                                                    cx={`${p.x}%`} 
-                                                    cy={`${p.y}%`} 
-                                                    r="4.5" 
-                                                    fill="#3b82f6" 
+                                                    cx={`${p.x}%`}
+                                                    cy={`${p.y}%`}
+                                                    r="4.5"
+                                                    fill="#3b82f6"
                                                     className="drop-shadow-[0_0_8px_rgba(59,130,246,0.8)] cursor-pointer"
                                                 />
                                             ))}
@@ -1124,12 +1184,13 @@ const StateAdminDashboard = () => {
                                                 const segments = trendLabels.length - 1;
                                                 const xPos = segments > 0 ? (i / segments) * 100 : 50;
                                                 return (
-                                                <div key={i} className="absolute text-center text-slate-500 w-12 -ml-6 uppercase tracking-wider" style={{ left: `${xPos}%` }}>
-                                                    {date}
-                                                </div>
-                                            )})}
+                                                    <div key={i} className="absolute text-center text-slate-500 w-12 -ml-6 uppercase tracking-wider" style={{ left: `${xPos}%` }}>
+                                                        {date}
+                                                    </div>
+                                                )
+                                            })}
                                         </div>
-                                   </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1140,16 +1201,16 @@ const StateAdminDashboard = () => {
                 const handlePolicyToggle = (title, isEnabled) => {
                     const status = isEnabled ? 'enabled' : 'disabled';
                     triggerNotification(
-                        `Global Policy Synced`, 
+                        `Global Policy Synced`,
                         `The "${title}" constraint has been ${status}. This policy is now propagating across all Regional, Depot, Driver, and Customer dashboards.`
                     );
                 };
-                
+
                 const handleFareChange = (amount) => {
                     const newFare = (fareRate + amount).toFixed(2);
                     if (newFare < 0.5) return;
                     triggerNotification(
-                        `Base Fare Rate Adjusted`, 
+                        `Base Fare Rate Adjusted`,
                         `The price for all state transport has been updated from ₹${fareRate.toFixed(2)} to ₹${newFare} for every km. Live syncing across all platforms...`
                     );
                     setFareRate(parseFloat(newFare));
@@ -1190,7 +1251,7 @@ const StateAdminDashboard = () => {
                                     <PolicyToggle title="Disaster Mode Rerouting" desc="AI drops toll roads, prioritizes evacuation corridors." active={false} color="rose" onToggle={handlePolicyToggle} />
                                 </div>
                             </div>
-                            
+
                             {/* Operational Config */}
                             <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden col-span-1 md:col-span-2 hover:border-brand-500/30 transition-colors">
                                 <div className="bg-brand-500/10 px-6 py-4 border-b border-brand-500/20 flex items-center gap-3">
@@ -1257,29 +1318,29 @@ const StateAdminDashboard = () => {
 
             <AnimatePresence>
                 {isCreatingAlert && (
-                    <motion.div 
-                        initial={{ opacity: 0 }} 
-                        animate={{ opacity: 1 }} 
-                        exit={{ opacity: 0 }} 
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
                         className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4"
                     >
-                        <motion.div 
-                            initial={{ scale: 0.95, y: 20 }} 
-                            animate={{ scale: 1, y: 0 }} 
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.95, y: 20 }}
                             className="bg-gradient-to-b from-slate-900 to-[#07090e] border border-slate-700/80 rounded-[32px] p-6 md:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden"
                         >
                             <div className="absolute top-0 right-0 w-64 h-64 bg-brand-600/10 rounded-full blur-[80px] pointer-events-none"></div>
 
-                            <button onClick={() => setIsCreatingAlert(false)} className="absolute top-6 right-6 p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-full transition-colors border border-slate-700 z-10"><X className="w-5 h-5"/></button>
-                            
-                            <h3 className="text-2xl font-black text-white mb-2 flex items-center gap-3 relative z-10"><div className="p-2 bg-brand-500/20 rounded-lg text-brand-400 border border-brand-500/30"><Megaphone className="w-5 h-5"/></div> Global Broadcaster</h3>
+                            <button onClick={() => setIsCreatingAlert(false)} className="absolute top-6 right-6 p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-full transition-colors border border-slate-700 z-10"><X className="w-5 h-5" /></button>
+
+                            <h3 className="text-2xl font-black text-white mb-2 flex items-center gap-3 relative z-10"><div className="p-2 bg-brand-500/20 rounded-lg text-brand-400 border border-brand-500/30"><Megaphone className="w-5 h-5" /></div> Global Broadcaster</h3>
                             <p className="text-slate-400 text-sm mb-8 relative z-10">Deploy an operational or emergency alert instantly to all organization terminals nationwide.</p>
-                            
+
                             <div className="space-y-5 relative z-10">
                                 <div>
                                     <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Alert Heading</label>
-                                    <input id="alertTitle" type="text" placeholder="e.g. Critical Weather Warning - Deploy Protocols" className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 text-white focus:border-brand-500 outline-none transition-all shadow-inner font-medium placeholder:text-slate-600"/>
+                                    <input id="alertTitle" type="text" placeholder="e.g. Critical Weather Warning - Deploy Protocols" className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 text-white focus:border-brand-500 outline-none transition-all shadow-inner font-medium placeholder:text-slate-600" />
                                 </div>
                                 <div className="grid grid-cols-2 gap-5">
                                     <div>
@@ -1303,7 +1364,7 @@ const StateAdminDashboard = () => {
                                     <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Message Payload</label>
                                     <textarea id="alertMessage" rows="3" placeholder="Provide detailed instructions..." className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 text-white focus:border-brand-500 outline-none transition-all shadow-inner resize-none font-medium placeholder:text-slate-600"></textarea>
                                 </div>
-                                
+
                                 <button onClick={() => {
                                     const title = document.getElementById('alertTitle').value || 'System Alert';
                                     const msg = document.getElementById('alertMessage').value || 'No content provided.';
@@ -1312,7 +1373,7 @@ const StateAdminDashboard = () => {
                                     triggerGlobalAlert(typeMap[sevStr], `${title}: ${msg}`, sevStr);
                                     setIsCreatingAlert(false);
                                 }} className="w-full bg-gradient-to-r from-brand-600 to-purple-600 hover:from-brand-500 hover:to-purple-500 text-white font-black py-4 rounded-2xl shadow-[0_0_20px_rgba(168,85,247,0.4)] transition-all flex items-center justify-center gap-3 mt-4 hover:scale-[1.02] active:scale-95 border-b-[3px] border-brand-800 active:border-b-0 active:translate-y-[3px]">
-                                    <Radio className="w-5 h-5"/> Deploy Broadcast Now
+                                    <Radio className="w-5 h-5" /> Deploy Broadcast Now
                                 </button>
                             </div>
                         </motion.div>
@@ -1322,44 +1383,44 @@ const StateAdminDashboard = () => {
 
             <AnimatePresence>
                 {isAddingCorp && (
-                    <motion.div 
-                        initial={{ opacity: 0 }} 
-                        animate={{ opacity: 1 }} 
-                        exit={{ opacity: 0 }} 
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
                         className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4"
                     >
-                        <motion.div 
-                            initial={{ scale: 0.95, y: 20 }} 
-                            animate={{ scale: 1, y: 0 }} 
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.95, y: 20 }}
                             className="bg-gradient-to-b from-slate-900 to-[#07090e] border border-slate-700/80 rounded-[32px] p-6 md:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden"
                         >
                             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 rounded-full blur-[80px] pointer-events-none"></div>
 
-                            <button onClick={() => setIsAddingCorp(false)} className="absolute top-6 right-6 p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-full transition-colors border border-slate-700 z-10"><X className="w-5 h-5"/></button>
-                            
-                            <h3 className="text-2xl font-black text-white mb-2 flex items-center gap-3 relative z-10"><div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400 border border-indigo-500/30"><Layers className="w-5 h-5"/></div> Add Corporation</h3>
+                            <button onClick={() => setIsAddingCorp(false)} className="absolute top-6 right-6 p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-full transition-colors border border-slate-700 z-10"><X className="w-5 h-5" /></button>
+
+                            <h3 className="text-2xl font-black text-white mb-2 flex items-center gap-3 relative z-10"><div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400 border border-indigo-500/30"><Layers className="w-5 h-5" /></div> Add Corporation</h3>
                             <p className="text-slate-400 text-sm mb-8 relative z-10">Register a new State Transport Corporation entity for administrative management.</p>
-                            
+
                             <div className="space-y-5 relative z-10">
                                 <div>
                                     <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Corporation Name</label>
-                                    <input type="text" placeholder="e.g. SETC New Division" className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 text-white focus:border-indigo-500 outline-none transition-all shadow-inner font-medium placeholder:text-slate-600"/>
+                                    <input type="text" placeholder="e.g. SETC New Division" className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 text-white focus:border-indigo-500 outline-none transition-all shadow-inner font-medium placeholder:text-slate-600" />
                                 </div>
                                 <div>
                                     <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Short Code</label>
-                                    <input type="text" placeholder="e.g. SETC-N" className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 text-white focus:border-indigo-500 outline-none transition-all shadow-inner font-medium placeholder:text-slate-600"/>
+                                    <input type="text" placeholder="e.g. SETC-N" className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 text-white focus:border-indigo-500 outline-none transition-all shadow-inner font-medium placeholder:text-slate-600" />
                                 </div>
                                 <div>
                                     <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Description / Scope</label>
                                     <textarea rows="2" placeholder="Primary responsibilities..." className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 text-white focus:border-indigo-500 outline-none transition-all shadow-inner resize-none font-medium placeholder:text-slate-600"></textarea>
                                 </div>
-                                
+
                                 <button onClick={() => {
                                     triggerGlobalAlert('success', `New organization structure formed successfully. Network updating...`, 'Moderate');
                                     setIsAddingCorp(false);
                                 }} className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-black py-4 rounded-2xl shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all flex items-center justify-center gap-3 mt-4 hover:scale-[1.02] active:scale-95 border-b-[3px] border-indigo-800 active:border-b-0 active:translate-y-[3px]">
-                                    <Plus className="w-5 h-5"/> Register Entity
+                                    <Plus className="w-5 h-5" /> Register Entity
                                 </button>
                             </div>
                         </motion.div>
@@ -1369,25 +1430,25 @@ const StateAdminDashboard = () => {
 
             <AnimatePresence>
                 {managingCorp && (
-                    <motion.div 
-                        initial={{ opacity: 0 }} 
-                        animate={{ opacity: 1 }} 
-                        exit={{ opacity: 0 }} 
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
                         className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4"
                     >
-                        <motion.div 
-                            initial={{ scale: 0.95, y: 20 }} 
-                            animate={{ scale: 1, y: 0 }} 
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.95, y: 20 }}
                             className="bg-gradient-to-b from-slate-900 to-[#07090e] border border-slate-700/80 rounded-[32px] p-6 md:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden"
                         >
                             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 rounded-full blur-[80px] pointer-events-none"></div>
 
-                            <button onClick={() => setManagingCorp(null)} className="absolute top-6 right-6 p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-full transition-colors border border-slate-700 z-10"><X className="w-5 h-5"/></button>
-                            
-                            <h3 className="text-2xl font-black text-white mb-2 flex items-center gap-3 relative z-10"><div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400 border border-indigo-500/30"><Settings className="w-5 h-5"/></div> Corp Config</h3>
+                            <button onClick={() => setManagingCorp(null)} className="absolute top-6 right-6 p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-full transition-colors border border-slate-700 z-10"><X className="w-5 h-5" /></button>
+
+                            <h3 className="text-2xl font-black text-white mb-2 flex items-center gap-3 relative z-10"><div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400 border border-indigo-500/30"><Settings className="w-5 h-5" /></div> Corp Config</h3>
                             <p className="text-slate-400 text-sm mb-8 relative z-10">Manage permissions, budget, and operational status for {managingCorp?.name}.</p>
-                            
+
                             <div className="space-y-5 relative z-10">
                                 <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800">
                                     <div className="text-[10px] uppercase text-slate-500 font-bold mb-1">Entity Reference</div>
@@ -1411,12 +1472,12 @@ const StateAdminDashboard = () => {
                                         </select>
                                     </div>
                                 </div>
-                                
+
                                 <button onClick={() => {
                                     triggerGlobalAlert('success', `Configuration for ${managingCorp.code} updated and synchronized.`, 'Moderate');
                                     setManagingCorp(null);
                                 }} className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-black py-4 rounded-2xl shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all flex items-center justify-center gap-3 mt-4 hover:scale-[1.02] active:scale-95 border-b-[3px] border-indigo-800 active:border-b-0 active:translate-y-[3px]">
-                                    <CheckCircle2 className="w-5 h-5"/> Apply Changes
+                                    <CheckCircle2 className="w-5 h-5" /> Apply Changes
                                 </button>
                             </div>
                         </motion.div>
@@ -1424,6 +1485,24 @@ const StateAdminDashboard = () => {
                 )}
             </AnimatePresence>
 
+            {/* Photo Proof Lightbox Zoom Modal */}
+            {photoModalUrl && (
+                <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setPhotoModalUrl(null)}>
+                    <div className="relative max-w-3xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden p-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800">
+                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                                <Camera className="w-4 h-4 text-rose-400" /> Passenger Photo Evidence Proof
+                            </span>
+                            <button onClick={() => setPhotoModalUrl(null)} className="text-slate-400 hover:text-white p-1 rounded-lg">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="p-3 flex items-center justify-center max-h-[75vh] overflow-auto">
+                            <img src={photoModalUrl} alt="Complaint Evidence" className="max-w-full max-h-[70vh] rounded-xl object-contain shadow-lg" />
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -1462,7 +1541,7 @@ const PolicyToggle = ({ title, desc, active: defaultActive, color, onToggle }) =
         rose: 'bg-rose-600',
         brand: 'bg-brand-600'
     };
-    
+
     const handleToggle = () => {
         const newState = !active;
         setActive(newState);
@@ -1475,11 +1554,11 @@ const PolicyToggle = ({ title, desc, active: defaultActive, color, onToggle }) =
                 <h4 className="text-slate-200 font-bold group-hover:text-white transition-colors">{title}</h4>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm">{desc}</p>
             </div>
-            <button 
+            <button
                 onClick={handleToggle}
                 className={`w-14 h-7 rounded-full relative transition-colors duration-300 flex-shrink-0 shadow-inner border border-slate-800 ${active ? colorClasses[color] : 'bg-slate-800'}`}
             >
-                <motion.div 
+                <motion.div
                     initial={false}
                     animate={{ x: active ? 28 : 2 }}
                     className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-md`}
@@ -1492,30 +1571,30 @@ const PolicyToggle = ({ title, desc, active: defaultActive, color, onToggle }) =
 const MetricCard = ({ title, value, trend, icon: Icon, color }) => {
     const rawColor = color.split(' ')[1].replace('text-', ''); // e.g., 'indigo-400'
     const bgColor = color.split(' ')[0].replace('border-', 'bg-');
-    
+
     return (
-        <motion.div 
+        <motion.div
             variants={{
                 hidden: { opacity: 0, y: 30, scale: 0.95 },
                 visible: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring', bounce: 0.4 } }
             }}
-            whileHover={{ y: -8, scale: 1.02, boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)' }} 
+            whileHover={{ y: -8, scale: 1.02, boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)' }}
             className={`bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 hover:${color.split(' ')[0]} rounded-3xl p-5 xl:p-6 shadow-2xl relative overflow-hidden group cursor-pointer backdrop-blur-xl transition-all duration-300 w-full`}
         >
             <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-[50px] opacity-10 group-hover:opacity-30 transition-opacity duration-500 bg-${rawColor.split('-')[0]}-500`}></div>
-            
+
             <div className="flex justify-between items-start mb-6 relative z-10 gap-2">
                 <div className={`w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center border border-slate-800 group-hover:${bgColor} transition-colors duration-500 shadow-inner shrink-0`}>
                     <Icon className={`w-5 h-5 ${color.split(' ')[1]}`} />
                 </div>
                 {trend && <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-inner border border-slate-800 bg-slate-950/50 ${color.split(' ')[1]} shrink-0 text-right leading-tight`}>{trend}</span>}
             </div>
-            
+
             <div className="relative z-10 flex flex-col w-full">
                 <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 mb-1">{title}</span>
                 <div className="flex items-end justify-between gap-3 w-full">
                     <span className="text-2xl lg:text-3xl xl:text-3xl 2xl:text-4xl font-black text-white tracking-tighter drop-shadow-md whitespace-nowrap">{value}</span>
-                    
+
                     {/* Animated Sparkline */}
                     <div className="flex items-end gap-[3px] h-8 pb-1 opacity-50 group-hover:opacity-100 transition-opacity duration-300 shrink-0">
                         {[4, 7, 3, 9, 5, 10, 6].map((h, i) => (
@@ -1547,11 +1626,11 @@ const DataTable = ({ columns, data }) => (
                         {data.length === 0 ? (
                             <motion.tr initial={{ opacity: 0 }} animate={{ opacity: 1 }}><td colSpan={columns.length} className="px-6 py-12 text-center text-slate-500 font-medium tracking-wide">No active records found.</td></motion.tr>
                         ) : data.map((row, i) => (
-                            <motion.tr 
+                            <motion.tr
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: i * 0.03 }}
-                                key={i} 
+                                key={i}
                                 className="group hover:bg-slate-800/40 transition-colors duration-300 even:bg-slate-900/40"
                             >
                                 {row.map((cell, j) => (

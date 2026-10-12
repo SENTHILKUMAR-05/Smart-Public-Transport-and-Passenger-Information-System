@@ -6,6 +6,7 @@ import RouteMap from '../components/Map/RouteMap';
 import QrTicketModal from '../components/common/QrTicketModal';
 import villageNames from './village_names.json';
 import busSchedules from './bus_schedules.json';
+import findMultiLegJourneys from '../utils/routeFinder';
 import {
   Bus, MapPin, Calendar, Clock, Navigation, Search,
   Map, Activity, AlertTriangle, ArrowRight, ArrowLeft, X, Heart, ShieldAlert, WifiOff,
@@ -13,7 +14,7 @@ import {
 } from 'lucide-react';
 
 const PassengerDashboard = () => {
-  const { liveBuses, isConnected } = useSocket();
+  const { liveBuses, isConnected, socket } = useSocket();
   const { addNotification } = useNotifications();
 
   const [activeTab, setActiveTab] = useState('home'); // home, search, journey, track, complaint
@@ -261,13 +262,37 @@ const PassengerDashboard = () => {
   const [complaintCategory, setComplaintCategory] = useState('');
   const [complaintText, setComplaintText] = useState('');
   const [complaintPhoto, setComplaintPhoto] = useState(null);
+  const [complaintPhotoPreview, setComplaintPhotoPreview] = useState(null);
+  const [photoModalUrl, setPhotoModalUrl] = useState(null);
   const [complaintBusNumber, setComplaintBusNumber] = useState('');
   const [showBusOpts, setShowBusOpts] = useState(false);
   const [raisedComplaints, setRaisedComplaints] = useState([]);
   const [viewComplaintDetails, setViewComplaintDetails] = useState(null);
 
+  const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    if (!file) return resolve(null);
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = error => reject(error);
+  });
+
   // Example offline simulation
   const [isOffline, setIsOffline] = useState(false);
+  const [allSchedules, setAllSchedules] = useState(busSchedules || []);
+
+  const fetchLiveSchedules = async () => {
+    try {
+      const res = await axios.get('http://localhost:5000/api/passenger/all-schedules');
+      if (res.data && res.data.length > 0) {
+        setAllSchedules(res.data);
+        return res.data;
+      }
+    } catch (e) {
+      console.warn('Using fallback schedules:', e.message);
+    }
+    return allSchedules;
+  };
 
   useEffect(() => {
     // Optionally simulate offline behaviour
@@ -277,6 +302,7 @@ const PassengerDashboard = () => {
     window.addEventListener('online', handleOnline);
 
     fetchComplaints();
+    fetchLiveSchedules();
 
     return () => {
       window.removeEventListener('offline', handleOffline);
@@ -284,20 +310,55 @@ const PassengerDashboard = () => {
     };
   }, []);
 
+  // Real-time synchronization for complaint status changes across Depot -> Regional -> State
+  useEffect(() => {
+    if (!socket) return;
+    const handleComplaintUpdate = () => {
+      fetchComplaints();
+    };
+    socket.on('complaint_updated', handleComplaintUpdate);
+    socket.on('new_complaint', handleComplaintUpdate);
+    return () => {
+      socket.off('complaint_updated', handleComplaintUpdate);
+      socket.off('new_complaint', handleComplaintUpdate);
+    };
+  }, [socket]);
+
   const fetchComplaints = async () => {
     try {
       const res = await axios.get('http://localhost:5000/api/passenger/complaints?user_id=Passenger1');
       // map backend names to frontend names
-      const mapped = res.data.map(c => ({
-        id: 'C-' + (c.complaint_id || c._id),
-        date: new Date(c.created_date).toLocaleDateString(),
-        time: new Date(c.created_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        busNumber: c.busNumber || c.location || 'N/A',
-        category: c.category,
-        text: c.description || c.text || '',
-        statusStr: c.statusStr,
-        photoUrl: null
-      }));
+      const mapped = res.data.map(c => {
+        const escLevel = c.escalation_level || 1;
+        let tierLabel = 'Level 1: Depot Admin';
+        if (escLevel === 2) tierLabel = 'Level 2: Regional Admin';
+        if (escLevel === 3) tierLabel = 'Level 3: State Command';
+
+        let statusColor = 'amber';
+        if (c.status === 'Resolved') statusColor = 'emerald';
+        else if (c.status?.includes('Escalat')) statusColor = 'rose';
+        else if (c.status?.includes('Investigation')) statusColor = 'indigo';
+
+        return {
+          id: 'C-' + (c.complaint_id || c.id || c._id),
+          complaint_id: c.complaint_id || c.id,
+          date: new Date(c.created_date).toLocaleDateString(),
+          time: new Date(c.created_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          busNumber: c.busNumber || c.bus_reg || c.registration_number || c.location || 'N/A',
+          category: c.category,
+          description: c.description || c.text,
+          text: c.description || c.text,
+          photoUrl: c.photo_url || c.photoUrl,
+          status: c.status,
+          statusStr: c.status,
+          severity: c.severity || 'Medium',
+          escalation_level: escLevel,
+          escalated_to: c.escalated_to || 'Depot Admin',
+          tierLabel,
+          statusColor,
+          resolutionNote: c.resolutionNote || c.resolution_remarks || (c.status === 'Resolved' ? 'Resolved by administration.' : 'Complaint logged and routed to depot manager.')
+        };
+      });
       setRaisedComplaints(mapped);
     } catch (err) {
       console.error(err);
@@ -327,148 +388,22 @@ const PassengerDashboard = () => {
       });
     }
 
+    // Fetch latest schedules from database in real time
+    const activeSchedules = await fetchLiveSchedules();
+
     // Simulate a slight delay for realistic loading
     setTimeout(() => {
       const selectedTimeMins = convert24hToMinutes(time);
-
-      let newJourneys = [];
-      let cleanSrc = searchSrc.replace(/ Bus Stand$/i, '').trim().toLowerCase();
-      let cleanDest = searchDest.replace(/ Bus Stand$/i, '').trim().toLowerCase();
-
-      // Dataset uses abbreviations!
-      if (cleanSrc === 'sathyamangalam') cleanSrc = 'sathy';
-      if (cleanDest === 'sathyamangalam') cleanDest = 'sathy';
-
-      // Find direct routes departing after the chosen time
-      const directMatches = busSchedules.filter(route =>
-        route.from.toLowerCase() === cleanSrc &&
-        route.to.toLowerCase() === cleanDest &&
-        convertAmPmToMinutes(route.departure) >= selectedTimeMins
+      const newJourneys = findMultiLegJourneys(
+        activeSchedules,
+        searchSrc,
+        searchDest,
+        selectedTimeMins
       );
-
-      if (directMatches.length > 0) {
-        directMatches.sort((a, b) => convertAmPmToMinutes(a.departure) - convertAmPmToMinutes(b.departure));
-        newJourneys = directMatches.slice(0, 40).map((route, idx) => ({
-          id: route.id,
-          type: idx === 0 ? 'OPTIMAL' : 'DIRECT',
-          label: idx === 0 ? 'AI Recommended (Fastest)' : 'Standard Route',
-          duration: route.duration || '1h 30m',
-          transfers: 0,
-          legs: [{
-            from: searchSrc,
-            to: searchDest,
-            departure: route.departure,
-            arrival: route.arrival,
-            bus: route.bus,
-            service_type: route.service_type || 'TNSTC Bus',
-            fare: route.fare || '₹55'
-          }],
-          fare: route.fare || '₹55',
-          crowdingScore: Math.floor(Math.random() * 80) + 10,
-          crowdingMessage: idx === 0 ? 'Seats Available' : 'Moderate',
-          status: 'On Time',
-          statusColor: 'text-emerald-400 bg-emerald-400/10'
-        }));
-      } else {
-        // Build Multi-Hop Connecting Routes dynamically
-        const hopMatches = [];
-        const firstLegs = busSchedules.filter(route =>
-          route.from.toLowerCase() === cleanSrc && convertAmPmToMinutes(route.departure) >= selectedTimeMins
-        );
-
-        firstLegs.forEach(leg1 => {
-          const leg1ArrTime = convertAmPmToMinutes(leg1.arrival);
-          // Find second legs that leave at least 5 mins after arrival
-          const secondLegsAny = busSchedules.filter(route =>
-            route.from.toLowerCase() === leg1.to.toLowerCase() &&
-            convertAmPmToMinutes(route.departure) >= (leg1ArrTime + 5)
-          );
-
-          // Sort second legs by earliest departure
-          secondLegsAny.sort((a, b) => convertAmPmToMinutes(a.departure) - convertAmPmToMinutes(b.departure));
-
-          // Find the very first connecting valid path for this leg1
-          for (let i = 0; i < secondLegsAny.length; i++) {
-            const leg2 = secondLegsAny[i];
-            if (leg2.to.toLowerCase() === cleanDest) {
-              hopMatches.push({ leg1, leg2 });
-              break; // Found immediate connection, stop exploring combinations for this leg1
-            } else {
-              // Explore third leg
-              const leg2ArrTime = convertAmPmToMinutes(leg2.arrival);
-              const thirdLegs = busSchedules.filter(route =>
-                route.from.toLowerCase() === leg2.to.toLowerCase() &&
-                route.to.toLowerCase() === cleanDest &&
-                convertAmPmToMinutes(route.departure) >= (leg2ArrTime + 5)
-              );
-              if (thirdLegs.length > 0) {
-                thirdLegs.sort((a, b) => convertAmPmToMinutes(a.departure) - convertAmPmToMinutes(b.departure));
-                hopMatches.push({ leg1, leg2, leg3: thirdLegs[0] });
-                break; // Found 2-transfer connection, stop exploring combinations for this leg1
-              }
-            }
-          }
-        });
-
-        if (hopMatches.length > 0) {
-          // Sort chronologically by departure of the first leg
-          hopMatches.sort((a, b) => convertAmPmToMinutes(a.leg1.departure) - convertAmPmToMinutes(b.leg1.departure));
-
-          // Allow more results to display afternoon/evening journeys
-          hopMatches.slice(0, 40).forEach((match, idx) => {
-            if (match.leg3) {
-              const totalMins = convertAmPmToMinutes(match.leg3.arrival) - convertAmPmToMinutes(match.leg1.departure);
-              const durationStr = `${Math.floor(totalMins / 60)}h ${totalMins % 60}m`;
-              const fareTotal = parseInt((match.leg1.fare || '55').replace(/[^0-9]/g, '')) + parseInt((match.leg2.fare || '55').replace(/[^0-9]/g, '')) + parseInt((match.leg3.fare || '55').replace(/[^0-9]/g, ''));
-
-              newJourneys.push({
-                id: 'hop_' + Math.random().toString(36).substr(2, 9),
-                type: idx === 0 ? 'OPTIMAL' : 'CONNECTING',
-                label: idx === 0 ? 'AI Recommended Connecting Route' : 'Alternative Hop (2 Transfers)',
-                duration: durationStr,
-                transfers: 2,
-                hopAt: `${match.leg1.to}, ${match.leg2.to}`,
-                legs: [
-                  { from: searchSrc, to: match.leg1.to + ' Bus Stand', departure: match.leg1.departure, arrival: match.leg1.arrival, bus: match.leg1.bus, service_type: match.leg1.service_type || 'TNSTC', fare: match.leg1.fare || '₹55' },
-                  { from: match.leg1.to + ' Bus Stand', to: match.leg2.to + ' Bus Stand', departure: match.leg2.departure, arrival: match.leg2.arrival, bus: match.leg2.bus, service_type: match.leg2.service_type || 'TNSTC', fare: match.leg2.fare || '₹55' },
-                  { from: match.leg2.to + ' Bus Stand', to: searchDest, departure: match.leg3.departure, arrival: match.leg3.arrival, bus: match.leg3.bus, service_type: match.leg3.service_type || 'TNSTC', fare: match.leg3.fare || '₹55' }
-                ],
-                fare: '₹' + fareTotal + ' (Total)',
-                crowdingScore: Math.floor(Math.random() * 80) + 10,
-                crowdingMessage: 'Moderate',
-                status: 'Connecting',
-                statusColor: 'text-amber-400 bg-amber-400/10'
-              });
-            } else {
-              const totalMins = convertAmPmToMinutes(match.leg2.arrival) - convertAmPmToMinutes(match.leg1.departure);
-              const durationStr = `${Math.floor(totalMins / 60)}h ${totalMins % 60}m`;
-              const fareTotal = parseInt((match.leg1.fare || '55').replace(/[^0-9]/g, '')) + parseInt((match.leg2.fare || '55').replace(/[^0-9]/g, ''));
-
-              newJourneys.push({
-                id: 'hop_' + Math.random().toString(36).substr(2, 9),
-                type: idx === 0 ? 'OPTIMAL' : 'CONNECTING',
-                label: idx === 0 ? 'AI Recommended Connecting Route' : 'Alternative Hop',
-                duration: durationStr,
-                transfers: 1,
-                hopAt: match.leg1.to,
-                legs: [
-                  { from: searchSrc, to: match.leg1.to + ' Bus Stand', departure: match.leg1.departure, arrival: match.leg1.arrival, bus: match.leg1.bus, service_type: match.leg1.service_type || 'TNSTC', fare: match.leg1.fare || '₹55' },
-                  { from: match.leg1.to + ' Bus Stand', to: searchDest, departure: match.leg2.departure, arrival: match.leg2.arrival, bus: match.leg2.bus, service_type: match.leg2.service_type || 'TNSTC', fare: match.leg2.fare || '₹55' }
-                ],
-                fare: '₹' + fareTotal + ' (Total)',
-                crowdingScore: Math.floor(Math.random() * 80) + 10,
-                crowdingMessage: 'Moderate',
-                status: 'Connecting',
-                statusColor: 'text-amber-400 bg-amber-400/10'
-              });
-            }
-          });
-        }
-      }
 
       setJourneys(newJourneys);
       setLoading(false);
-    }, 1000);
+    }, 800);
   };
 
   const handleSelectJourney = (journey) => {
@@ -504,11 +439,20 @@ const PassengerDashboard = () => {
   const submitComplaint = async (e) => {
     e.preventDefault();
     try {
+      let photoBase64 = complaintPhotoPreview;
+      if (!photoBase64 && complaintPhoto) {
+        try {
+          photoBase64 = await fileToBase64(complaintPhoto);
+        } catch (err) {
+          console.error("Error reading photo:", err);
+        }
+      }
+
       const payload = {
         category: complaintCategory,
         busNumber: complaintBusNumber,
         text: complaintText,
-        photoUrl: complaintPhoto ? URL.createObjectURL(complaintPhoto) : null,
+        photoUrl: photoBase64 || null,
         user_id: 'Passenger1'
       };
       await axios.post('http://localhost:5000/api/passenger/complaints', payload);
@@ -519,6 +463,7 @@ const PassengerDashboard = () => {
       setComplaintCategory('');
       setComplaintText('');
       setComplaintPhoto(null);
+      setComplaintPhotoPreview(null);
       setComplaintBusNumber('');
     } catch (err) {
       console.error(err);
@@ -860,7 +805,7 @@ const PassengerDashboard = () => {
                   {optimal.transfers > 0 && (
                     <div className="mt-8 border-t border-slate-800/60 pt-6">
                       <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Map className="w-4 h-4 text-brand-400" /> Connecting Journey Breakdown
+                        <Map className="w-4 h-4 text-brand-400" /> Connecting Journey Breakdown ({optimal.transfers} {optimal.transfers === 1 ? 'Transfer' : 'Transfers'}, {optimal.legs.length} Legs)
                       </h4>
                       <div className="grid gap-3 relative">
                         {/* Connecting Line behind the steps */}
@@ -962,6 +907,11 @@ const PassengerDashboard = () => {
                         <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-800 text-slate-300 px-2 py-1 rounded border border-slate-700 group-hover:bg-brand-500/20 group-hover:border-brand-500/30 group-hover:text-brand-300 transition-colors">
                           {j.legs[0]?.service_type || 'Mixed Route'}
                         </span>
+                        {j.transfers > 0 && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded border border-amber-500/20">
+                            {j.transfers === 1 ? '1 Transfer' : `${j.transfers} Transfers`}
+                          </span>
+                        )}
                         {(() => {
                           const bCount = j.legs.filter(l => {
                             const t = bookedLegs[`${date}-${l.bus}-${l.departure}`];
@@ -1316,18 +1266,28 @@ const PassengerDashboard = () => {
               <input
                 type="file"
                 accept="image/*"
-                onChange={e => setComplaintPhoto(e.target.files[0])}
+                onChange={e => {
+                  const file = e.target.files[0];
+                  setComplaintPhoto(file);
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => setComplaintPhotoPreview(reader.result);
+                    reader.readAsDataURL(file);
+                  } else {
+                    setComplaintPhotoPreview(null);
+                  }
+                }}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
               <div className="w-full bg-slate-950/60 border border-slate-800 border-dashed rounded-xl px-4 py-6 flex flex-col items-center justify-center gap-3 transition-colors group-hover:border-brand-500">
-                {complaintPhoto ? (
-                  <>
-                    <div className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                      <CheckCircle className="w-5 h-5" />
-                    </div>
-                    <span className="text-emerald-400 font-bold text-sm">{complaintPhoto.name || 'Photo selected'}</span>
-                    <span className="text-xs text-slate-500">Click to replace photo</span>
-                  </>
+                {complaintPhotoPreview ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <img src={complaintPhotoPreview} alt="Selected proof" className="w-24 h-24 object-cover rounded-xl border border-emerald-500/40 shadow-lg" />
+                    <span className="text-emerald-400 font-bold text-xs flex items-center gap-1.5">
+                      <CheckCircle className="w-4 h-4 text-emerald-400" /> {complaintPhoto?.name || 'Photo selected'}
+                    </span>
+                    <span className="text-[10px] text-slate-500">Click or tap to replace photo</span>
+                  </div>
                 ) : (
                   <>
                     <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center group-hover:text-brand-400 group-hover:bg-brand-500/20 transition-colors">
@@ -1874,25 +1834,104 @@ const PassengerDashboard = () => {
                 <div className="text-emerald-400 text-xs font-bold uppercase tracking-widest mb-1">{viewComplaintDetails.id}</div>
                 <h2 className="text-xl font-black text-white">{viewComplaintDetails.category.toUpperCase()}</h2>
               </div>
-              <div className="px-3 py-1 rounded text-xs font-black uppercase tracking-widest border bg-slate-800 text-amber-400 border-amber-400/30">
+              <div className={`px-3 py-1 rounded text-xs font-black uppercase tracking-widest border ${viewComplaintDetails.status === 'Resolved'
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                : viewComplaintDetails.escalation_level === 3
+                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                  : viewComplaintDetails.escalation_level === 2
+                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
+                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                }`}>
                 {viewComplaintDetails.statusStr}
               </div>
             </div>
 
             <div className="space-y-6">
+              {/* Multi-Tier Escalation Stepper */}
+              <div className="bg-slate-950/70 p-5 rounded-2xl border border-slate-800">
+                <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-4 flex justify-between items-center">
+                  <span>Administrative Escalation Hierarchy</span>
+                  <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                    Current: {viewComplaintDetails.tierLabel || 'Level 1: Depot Admin'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 relative">
+                  {/* Step 1: Depot Admin */}
+                  <div className={`p-3 rounded-xl border text-center relative ${viewComplaintDetails.escalation_level >= 1
+                    ? 'bg-indigo-500/10 border-indigo-500/40 text-white'
+                    : 'bg-slate-900/50 border-slate-800 text-slate-500'
+                    }`}>
+                    <div className={`w-6 h-6 mx-auto rounded-full flex items-center justify-center text-xs font-bold mb-1.5 ${viewComplaintDetails.escalation_level > 1 || viewComplaintDetails.status === 'Resolved'
+                      ? 'bg-emerald-500 text-slate-950 font-black'
+                      : 'bg-indigo-500 text-white'
+                      }`}>
+                      {viewComplaintDetails.escalation_level > 1 || viewComplaintDetails.status === 'Resolved' ? '✓' : '1'}
+                    </div>
+                    <div className="text-xs font-black">Level 1: Depot</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">Local Depot Review</div>
+                  </div>
+
+                  {/* Step 2: Regional Admin */}
+                  <div className={`p-3 rounded-xl border text-center relative ${viewComplaintDetails.escalation_level >= 2
+                    ? 'bg-indigo-500/10 border-indigo-500/40 text-white'
+                    : 'bg-slate-900/50 border-slate-800 text-slate-500'
+                    }`}>
+                    <div className={`w-6 h-6 mx-auto rounded-full flex items-center justify-center text-xs font-bold mb-1.5 ${viewComplaintDetails.escalation_level > 2 || (viewComplaintDetails.escalation_level === 2 && viewComplaintDetails.status === 'Resolved')
+                      ? 'bg-emerald-500 text-slate-950 font-black'
+                      : viewComplaintDetails.escalation_level === 2
+                        ? 'bg-indigo-500 text-white'
+                        : 'bg-slate-800 text-slate-500'
+                      }`}>
+                      {viewComplaintDetails.escalation_level > 2 ? '✓' : '2'}
+                    </div>
+                    <div className="text-xs font-black">Level 2: Regional</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">Salem Division</div>
+                  </div>
+
+                  {/* Step 3: State Command */}
+                  <div className={`p-3 rounded-xl border text-center relative ${viewComplaintDetails.escalation_level >= 3
+                    ? 'bg-rose-500/10 border-rose-500/40 text-white'
+                    : 'bg-slate-900/50 border-slate-800 text-slate-500'
+                    }`}>
+                    <div className={`w-6 h-6 mx-auto rounded-full flex items-center justify-center text-xs font-bold mb-1.5 ${viewComplaintDetails.status === 'Resolved' && viewComplaintDetails.escalation_level === 3
+                      ? 'bg-emerald-500 text-slate-950 font-black'
+                      : viewComplaintDetails.escalation_level === 3
+                        ? 'bg-rose-500 text-white animate-pulse'
+                        : 'bg-slate-800 text-slate-500'
+                      }`}>
+                      {viewComplaintDetails.status === 'Resolved' && viewComplaintDetails.escalation_level === 3 ? '✓' : '3'}
+                    </div>
+                    <div className="text-xs font-black">Level 3: State</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">TNSTC HQ Command</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Official Action Remarks / Resolution Note */}
+              <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800">
+                <div className="text-xs text-slate-400 uppercase font-black tracking-widest mb-2 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-400" />
+                  Official Administrative Remarks & Resolution Note
+                </div>
+                <div className="text-slate-200 text-sm leading-relaxed font-sans bg-slate-900/80 p-4 rounded-xl border border-slate-800/80">
+                  {viewComplaintDetails.resolutionNote}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/50">
                   <div className="text-xs text-slate-500 uppercase font-black tracking-widest mb-1">Incident Date</div>
                   <div className="text-white font-bold">{viewComplaintDetails.date} <span className="text-slate-400">{viewComplaintDetails.time}</span></div>
                 </div>
                 <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/50">
-                  <div className="text-xs text-slate-500 uppercase font-black tracking-widest mb-1">Bus Number</div>
-                  <div className="text-white font-bold">{viewComplaintDetails.busNumber || 'N/A'}</div>
+                  <div className="text-xs text-slate-500 uppercase font-black tracking-widest mb-1">Bus Registration</div>
+                  <div className="text-white font-mono font-bold text-amber-300">{viewComplaintDetails.busNumber || 'N/A'}</div>
                 </div>
               </div>
 
               <div>
-                <div className="text-xs text-slate-500 uppercase font-black tracking-widest mb-2">Complaint Details</div>
+                <div className="text-xs text-slate-500 uppercase font-black tracking-widest mb-2">Complaint Description</div>
                 <div className="bg-slate-950/60 p-5 rounded-xl border border-slate-800/50 text-slate-300 leading-relaxed whitespace-pre-wrap">
                   {viewComplaintDetails.text}
                 </div>
@@ -1900,9 +1939,17 @@ const PassengerDashboard = () => {
 
               {viewComplaintDetails.photoUrl && (
                 <div>
-                  <div className="text-xs text-slate-500 uppercase font-black tracking-widest mb-2">Attached Evidence</div>
-                  <div className="rounded-xl overflow-hidden border border-slate-800 max-w-sm">
-                    <img src={viewComplaintDetails.photoUrl} alt="Complaint Evidence" className="w-full h-auto object-cover" />
+                  <div className="text-xs text-slate-500 uppercase font-black tracking-widest mb-2 flex items-center gap-1.5">
+                    <Camera className="w-3.5 h-3.5 text-brand-400" /> Attached Evidence (Click to Zoom)
+                  </div>
+                  <div
+                    onClick={() => setPhotoModalUrl(viewComplaintDetails.photoUrl)}
+                    className="rounded-xl overflow-hidden border border-slate-800 max-w-sm cursor-pointer group relative hover:border-brand-500 transition"
+                  >
+                    <img src={viewComplaintDetails.photoUrl} alt="Complaint Evidence" className="w-full h-auto object-cover group-hover:scale-105 transition duration-300" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold gap-1">
+                      <Camera className="w-4 h-4" /> Click to Enlarge
+                    </div>
                   </div>
                 </div>
               )}
@@ -1936,17 +1983,46 @@ const PassengerDashboard = () => {
                 <div className="flex-1 text-center sm:text-left w-full">
                   <div className="flex flex-col sm:flex-row justify-between items-center sm:items-start gap-1">
                     <span className="text-white font-black text-lg truncate w-full sm:w-auto">{complaint.category.toUpperCase()}</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border bg-slate-800 text-amber-400 border-amber-400/30 shrink-0 mt-1 sm:mt-0">
-                      {complaint.statusStr}
-                    </span>
+                    <div className="flex items-center gap-2 mt-1 sm:mt-0">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border ${complaint.status === 'Resolved'
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                        : complaint.escalation_level === 3
+                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                          : complaint.escalation_level === 2
+                            ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        }`}>
+                        {complaint.statusStr}
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                        {complaint.tierLabel}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 text-xs font-bold text-slate-500 mt-3 sm:mt-1 uppercase tracking-widest justify-center sm:justify-start">
                     <span>{complaint.date}</span>
                     <span className="hidden sm:inline">&bull;</span>
-                    <span>Bus: {complaint.busNumber || 'N/A'}</span>
+                    <span>Bus: <strong className="text-slate-300 font-mono">{complaint.busNumber || 'N/A'}</strong></span>
                     <span className="hidden sm:inline">&bull;</span>
                     <span className="text-slate-400">ID: {complaint.id}</span>
                   </div>
+                  {complaint.resolutionNote && (
+                    <div className="text-xs text-slate-400 mt-2 line-clamp-1 italic">
+                      Note: {complaint.resolutionNote}
+                    </div>
+                  )}
+                  {complaint.photoUrl && (
+                    <div
+                      onClick={(e) => { e.stopPropagation(); setPhotoModalUrl(complaint.photoUrl); }}
+                      className="mt-3 flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 w-fit hover:border-brand-500/40 transition cursor-pointer"
+                    >
+                      <img src={complaint.photoUrl} alt="Proof" className="w-9 h-9 object-cover rounded-lg border border-slate-700" />
+                      <div className="text-[11px] text-left">
+                        <span className="text-brand-400 font-bold flex items-center gap-1"><Camera className="w-3 h-3" /> Attached Evidence</span>
+                        <span className="text-slate-500 block text-[9px]">Click to view full photo</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="shrink-0 w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 group-hover:bg-amber-500/20 group-hover:text-amber-400 transition-colors hidden sm:flex">
@@ -2093,6 +2169,25 @@ const PassengerDashboard = () => {
             setActiveTab('home');
           }}
         />
+      )}
+
+      {/* Photo Proof Lightbox Zoom Modal */}
+      {photoModalUrl && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setPhotoModalUrl(null)}>
+          <div className="relative max-w-3xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden p-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800">
+              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                <Camera className="w-4 h-4 text-brand-400" /> Passenger Photographic Proof
+              </span>
+              <button onClick={() => setPhotoModalUrl(null)} className="text-slate-400 hover:text-white p-1 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-3 flex items-center justify-center max-h-[75vh] overflow-auto">
+              <img src={photoModalUrl} alt="Complaint Evidence" className="max-w-full max-h-[70vh] rounded-xl object-contain shadow-lg" />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

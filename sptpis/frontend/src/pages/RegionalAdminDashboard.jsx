@@ -5,7 +5,7 @@ import {
     Building, Bus, Users, Activity, BarChart3, AlertTriangle,
     MapPin, CheckCircle2, Navigation, MessageSquare, ListRestart,
     Clock, ShieldAlert, MonitorSpeaker, TrendingUp, TrendingDown,
-    Wrench, Star, ArrowRight, UserCog, UserCheck, Settings, X
+    Wrench, Star, ArrowRight, UserCog, UserCheck, Settings, X, Camera
 } from 'lucide-react';
 import FleetMap from '../components/Map/FleetMap';
 import { useSocket } from '../context/SocketContext';
@@ -31,7 +31,7 @@ const RegionalAdminDashboard = () => {
     const [activeMenu, setActiveMenu] = useState('overview');
     const [dashboardData, setDashboardData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const { liveBuses } = useSocket();
+    const { liveBuses, socket } = useSocket();
 
     const [depots, setDepots] = useState([]);
     const [routes, setRoutes] = useState([]);
@@ -39,11 +39,12 @@ const RegionalAdminDashboard = () => {
     const [complaints, setComplaints] = useState([]);
     const [auditLogs, setAuditLogs] = useState([]);
     const [schedules, setSchedules] = useState([]);
-    
+    const [photoModalUrl, setPhotoModalUrl] = useState(null);
+
     // Drill-down state
     const [selectedDistrict, setSelectedDistrict] = useState(null);
     const [selectedDepot, setSelectedDepot] = useState(null);
-    
+
     // UI Filters & Action State
     const [complaintFilter, setComplaintFilter] = useState('all');
     const [actionLoading, setActionLoading] = useState(false);
@@ -76,19 +77,32 @@ const RegionalAdminDashboard = () => {
         return `${talukName} Sector (NH-45, Km ${km})`;
     };
 
-    const handleModalSubmit = (e) => {
+    const handleModalSubmit = async (e) => {
         if (e) e.preventDefault();
         if (!activeModal) return;
         const { type, item } = activeModal;
         setActionLoading(true);
 
-        setTimeout(() => {
+        try {
             if (type === 'route') {
-                setComplaints(prev => prev.map(c => c.complaint_id === item.complaint_id ? { ...c, status: 'Routed to Depot' } : c));
-                triggerToast(`Ticket #${item.complaint_id} successfully assigned & routed to Depot Manager.`);
+                await axios.put(`/api/regional/complaints/${item.complaint_id}/route-depot`, {
+                    depot_name: selectedOption || 'Dharmapuri Depot',
+                    instructions: modalNotes || 'Depot manager instructed to conduct immediate inspection and report.'
+                });
+                triggerToast(`Ticket #${item.complaint_id} assigned & routed to ${selectedOption || 'Depot'}.`);
+                loadTabData('complaints');
             } else if (type === 'direct') {
-                setComplaints(prev => prev.map(c => c.complaint_id === item.complaint_id ? { ...c, status: 'Resolved' } : c));
+                await axios.put(`/api/regional/complaints/${item.complaint_id}/resolve`, {
+                    remarks: modalNotes || selectedOption || 'Resolved by Regional Administrator after direct review and disciplinary warning.'
+                });
                 triggerToast(`Ticket #${item.complaint_id} marked as RESOLVED by Regional Admin.`);
+                loadTabData('complaints');
+            } else if (type === 'escalate_state') {
+                await axios.put(`/api/regional/complaints/${item.complaint_id}/escalate`, {
+                    reason: modalNotes || 'Escalated to State Transport Authority Command for state-level passenger compensation & audit.'
+                });
+                triggerToast(`Ticket #${item.complaint_id} escalated to State Transport HQ Command!`, 'warning');
+                loadTabData('complaints');
             } else if (type === 'dispatch') {
                 setIncidents(prev => prev.map(inc => inc.incident_id === item.incident_id ? { ...inc, status: 'Unit Dispatched' } : inc));
                 triggerToast(`Emergency Response Unit dispatched for Bus ID ${item.bus_id}!`);
@@ -96,11 +110,15 @@ const RegionalAdminDashboard = () => {
                 setIncidents(prev => prev.map(inc => inc.incident_id === item.incident_id ? { ...inc, status: 'Escalated to State Admin' } : inc));
                 triggerToast(`Incident #${item.incident_id} escalated to State Transport Command Center!`, 'warning');
             }
+        } catch (err) {
+            console.error('Regional action error:', err);
+            triggerToast(`Action failed: ${err.response?.data?.error || err.message}`, 'error');
+        } finally {
             setActionLoading(false);
             setActiveModal(null);
             setModalNotes('');
             setSelectedOption('');
-        }, 500);
+        }
     };
 
     const tnDistrictsData = [
@@ -157,7 +175,21 @@ const RegionalAdminDashboard = () => {
 
     useEffect(() => {
         fetchInitialData();
-    }, []);
+
+        if (socket) {
+            const handleComplaintSync = () => {
+                if (activeMenu === 'complaints') {
+                    loadTabData('complaints');
+                }
+            };
+            socket.on('complaint_updated', handleComplaintSync);
+            socket.on('new_complaint', handleComplaintSync);
+            return () => {
+                socket.off('complaint_updated', handleComplaintSync);
+                socket.off('new_complaint', handleComplaintSync);
+            };
+        }
+    }, [socket, activeMenu]);
 
     const fetchInitialData = async () => {
         try {
@@ -256,12 +288,12 @@ const RegionalAdminDashboard = () => {
                     if (Array.isArray(res.data) && res.data.length > 0) {
                         setComplaints(res.data);
                     } else {
-                         throw new Error("mock fallback");
+                        throw new Error("mock fallback");
                     }
                 } catch {
-                     setComplaints([
-                        { complaint_id: 'RA-0921', category: 'Safety & Security', description: `Driver was speeding recklessly near the ${globalDistrict.name} school zone. Needs immediate warning.`, registration_number: 'TN-38-N-1023', severity: 'High', status: 'Pending Review', created_date: new Date(Date.now() - 3600000).toISOString() },
-                        { complaint_id: 'RA-0918', category: 'Breakdown / Maintenance', description: `Bus broke down near ${globalDistrict.name} border, no replacement sent for 3 hours.`, registration_number: 'TN-43-C-5091', severity: 'High', status: 'Escalated', created_date: new Date(Date.now() - 86400000 * 2).toISOString() },
+                    setComplaints([
+                        { complaint_id: 'RA-0921', category: 'Safety & Security', description: `Driver was speeding recklessly near the ${globalDistrict.name} school zone. Needs immediate warning.`, registration_number: 'TN-38-N-1023', severity: 'High', status: 'Pending Review', photo_url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR42mNk+M9QzwAEjAw/ACkNAf9j873wAAAAAElFTkSuQmCC', created_date: new Date(Date.now() - 3600000).toISOString() },
+                        { complaint_id: 'RA-0918', category: 'Breakdown / Maintenance', description: `Bus broke down near ${globalDistrict.name} border, no replacement sent for 3 hours.`, registration_number: 'TN-43-C-5091', severity: 'High', status: 'Escalated', photo_url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR42mNk+M9QzwAEjAw/ACkNAf9j873wAAAAAElFTkSuQmCC', created_date: new Date(Date.now() - 86400000 * 2).toISOString() },
                         { complaint_id: 'DEP-8422', category: 'Staff Behavior', description: 'Conductor was extremely rude and refused to give correct change. Depot admin did not take action within SLA.', registration_number: 'TN-33-F-1209', severity: 'Medium', status: 'Escalated', created_date: new Date(Date.now() - 86400000 * 3).toISOString() },
                         { complaint_id: 'DEP-8319', category: 'Cleanliness', description: 'Seats were torn and there was a heavy stench. Escalated from depot level.', registration_number: 'TN-30-A-1100', severity: 'Low', status: 'Escalated', created_date: new Date(Date.now() - 86400000 * 4).toISOString() },
                         { complaint_id: 'RA-0905', category: 'Severe Delay', description: `Expected bus at 6 AM in ${globalDistrict.name}, arrived at 8:30 AM. Missed the connecting train.`, registration_number: 'TN-55-B-3090', severity: 'High', status: 'Resolved', created_date: new Date(Date.now() - 86400000 * 5).toISOString() },
@@ -292,8 +324,8 @@ const RegionalAdminDashboard = () => {
                                 <span className="bg-blue-500/20 text-blue-400 font-bold uppercase tracking-wider text-xs px-2.5 py-1 rounded-full border border-blue-500/30">Regional Transport Administration</span>
                                 <h2 className="text-3xl font-black text-white flex items-center gap-3 mt-3">
                                     <Building className="w-8 h-8 text-blue-500" />
-                                    Region: 
-                                    <select 
+                                    Region:
+                                    <select
                                         className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1 text-2xl font-black focus:outline-none focus:border-blue-500"
                                         value={globalDistrict.code}
                                         onChange={(e) => {
@@ -497,7 +529,7 @@ const RegionalAdminDashboard = () => {
                                     All Tickets ({complaints.length})
                                 </button>
                                 <button onClick={() => setComplaintFilter('escalated')} className={`px-4 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${complaintFilter === 'escalated' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
-                                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400"/> Escalated ({highPriorityCount})
+                                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400" /> Escalated ({highPriorityCount})
                                 </button>
                                 <button onClick={() => setComplaintFilter('resolved')} className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${complaintFilter === 'resolved' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
                                     Resolved ({resolvedCount})
@@ -551,18 +583,16 @@ const RegionalAdminDashboard = () => {
                         {/* Complaint Ticket Cards Grid */}
                         <div className="grid gap-4">
                             {filteredComplaints.length > 0 ? filteredComplaints.map((c, idx) => (
-                                <div key={c.complaint_id} className={`bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 rounded-2xl p-6 shadow-xl border-l-4 transition-all hover:translate-y-[-2px] hover:shadow-2xl ${
-                                    c.severity === 'High' ? 'border-l-rose-500 border-t border-b border-r border-slate-800' :
+                                <div key={c.complaint_id} className={`bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 rounded-2xl p-6 shadow-xl border-l-4 transition-all hover:translate-y-[-2px] hover:shadow-2xl ${c.severity === 'High' ? 'border-l-rose-500 border-t border-b border-r border-slate-800' :
                                     c.status === 'Resolved' ? 'border-l-emerald-500 border-t border-b border-r border-slate-800' :
-                                    'border-l-amber-500 border-t border-b border-r border-slate-800'
-                                }`}>
+                                        'border-l-amber-500 border-t border-b border-r border-slate-800'
+                                    }`}>
                                     <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                                         <div className="space-y-3 flex-1">
                                             <div className="flex flex-wrap items-center gap-2">
                                                 {/* Severity Badge */}
-                                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 border ${
-                                                    c.severity === 'High' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                                                }`}>
+                                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 border ${c.severity === 'High' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                                    }`}>
                                                     <span className={`w-1.5 h-1.5 rounded-full ${c.severity === 'High' ? 'bg-rose-400 animate-ping' : 'bg-amber-400'}`}></span>
                                                     {c.severity} Priority
                                                 </span>
@@ -580,49 +610,81 @@ const RegionalAdminDashboard = () => {
                                                 "{c.description}"
                                             </p>
 
+                                            {c.photo_url && (
+                                                <div
+                                                    onClick={() => setPhotoModalUrl(c.photo_url)}
+                                                    className="mt-3 bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center gap-3 cursor-pointer hover:border-blue-500/50 transition group/img"
+                                                >
+                                                    <img src={c.photo_url} alt="Passenger proof" className="w-12 h-12 object-cover rounded-lg border border-slate-700 shrink-0" />
+                                                    <div className="text-left">
+                                                        <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                                                            <Camera className="w-3.5 h-3.5" /> Passenger Photo Evidence
+                                                        </span>
+                                                        <span className="text-[10px] text-slate-500 block">Click to inspect high-resolution photo proof</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 pt-1">
                                                 <span className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
-                                                    <Bus className="w-3.5 h-3.5 text-blue-400"/> Bus Reg: <strong className="text-white">{formatBusReg(c.registration_number)}</strong>
+                                                    <Bus className="w-3.5 h-3.5 text-blue-400" /> Bus Reg: <strong className="text-white">{formatBusReg(c.registration_number)}</strong>
                                                 </span>
                                                 <span className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
-                                                    <Building className="w-3.5 h-3.5 text-slate-400"/> Depot: <strong className="text-slate-200">{getTalukDepotName(globalDistrict, idx)}</strong>
+                                                    <Building className="w-3.5 h-3.5 text-slate-400" /> Depot: <strong className="text-slate-200">{getTalukDepotName(globalDistrict, idx)}</strong>
                                                 </span>
                                                 <span className="flex items-center gap-1.5 text-slate-400">
-                                                    <Clock className="w-3.5 h-3.5 text-amber-400"/> Reported: {new Date(c.created_date).toLocaleString()}
+                                                    <Clock className="w-3.5 h-3.5 text-amber-400" /> Reported: {new Date(c.created_date).toLocaleString()}
                                                 </span>
                                             </div>
                                         </div>
 
                                         {/* Status & Action Control Group */}
                                         <div className="flex flex-col items-start lg:items-end gap-3 min-w-[200px] w-full lg:w-auto border-t lg:border-t-0 border-slate-800 pt-3 lg:pt-0">
-                                            <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${
-                                                c.status === 'Escalated' ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 shadow-lg shadow-rose-500/20 animate-pulse' :
+                                            <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${c.status === 'Escalated' ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 shadow-lg shadow-rose-500/20 animate-pulse' :
                                                 c.status === 'Resolved' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' :
-                                                c.status === 'Routed to Depot' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40' :
-                                                'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                                            }`}>
+                                                    c.status === 'Routed to Depot' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40' :
+                                                        'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                                                }`}>
                                                 {c.status}
                                             </span>
 
-                                            {c.status !== 'Resolved' && (
-                                                <div className="flex gap-2 w-full lg:w-auto">
-                                                    <button 
+                                            {c.status === 'Resolved' ? (
+                                                <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3.5 py-2 rounded-xl flex items-center gap-1.5">
+                                                    ✓ Resolved
+                                                </span>
+                                            ) : (c.escalation_level >= 3 || (c.status && c.status.toLowerCase().includes('state'))) ? (
+                                                <div className="text-xs font-bold text-rose-400 bg-rose-500/10 border border-rose-500/30 px-3.5 py-2 rounded-xl flex items-center gap-1.5" title="Complaint forwarded to State HQ High Command for state-level arbitration">
+                                                    <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                                                    <span>↗ Forwarded to State HQ (Under Review)</span>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                                                    <button
                                                         onClick={() => {
                                                             setSelectedOption(getTalukDepotName(globalDistrict, idx));
                                                             setActiveModal({ type: 'route', item: c });
-                                                        }} 
-                                                        className="flex-1 lg:flex-none bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-xs font-bold transition border border-slate-700 flex items-center justify-center gap-1.5 cursor-pointer hover:border-blue-500/50 shadow-md"
+                                                        }}
+                                                        className="flex-1 lg:flex-none bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-xl text-xs font-bold transition border border-slate-700 flex items-center justify-center gap-1.5 cursor-pointer hover:border-blue-500/50 shadow-md"
                                                     >
                                                         <Building className="w-3.5 h-3.5 text-blue-400" /> Route to Depot
                                                     </button>
-                                                    <button 
+                                                    <button
                                                         onClick={() => {
-                                                            setSelectedOption('Issue Direct Disciplinary Fine & Warning');
+                                                            setSelectedOption('Issue Direct Disciplinary Warning & Rectify');
                                                             setActiveModal({ type: 'direct', item: c });
-                                                        }} 
-                                                        className="flex-1 lg:flex-none bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-lg shadow-blue-600/30 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-blue-400"
+                                                        }}
+                                                        className="flex-1 lg:flex-none bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition shadow-lg shadow-blue-600/30 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-blue-400"
                                                     >
-                                                        <UserCheck className="w-3.5 h-3.5" /> Take Direct Action
+                                                        <UserCheck className="w-3.5 h-3.5" /> Resolve Direct
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedOption('Escalate to State Transport Command Center');
+                                                            setActiveModal({ type: 'escalate_state', item: c });
+                                                        }}
+                                                        className="flex-1 lg:flex-none bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                                                    >
+                                                        <ShieldAlert className="w-3.5 h-3.5" /> Escalate to State HQ &rarr;
                                                     </button>
                                                 </div>
                                             )}
@@ -709,79 +771,78 @@ const RegionalAdminDashboard = () => {
                         <div className="grid gap-5">
                             {safeIncidents.map((inc, idx) => (
                                 <div key={inc?.incident_id || idx} className="bg-gradient-to-r from-rose-950/30 via-slate-900 to-slate-950 rounded-3xl p-6 shadow-2xl border border-rose-500/40 relative overflow-hidden group hover:border-rose-500/80 transition-all">
-                                     <div className="absolute top-0 right-0 w-64 h-64 bg-rose-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none group-hover:bg-rose-500/10 transition-colors"></div>
+                                    <div className="absolute top-0 right-0 w-64 h-64 bg-rose-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none group-hover:bg-rose-500/10 transition-colors"></div>
 
-                                     <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative z-10">
-                                          <div className="flex gap-5 items-start">
-                                              {/* Pulsing SOS Icon */}
-                                              <div className="relative flex-shrink-0">
-                                                  <div className="absolute inset-0 bg-rose-500 rounded-2xl blur-md animate-pulse opacity-60"></div>
-                                                  <div className="w-16 h-16 bg-slate-950 rounded-2xl border-2 border-rose-500 flex flex-col items-center justify-center relative z-10 text-rose-500 shadow-xl">
-                                                      <AlertTriangle className="w-7 h-7 animate-bounce"/>
-                                                      <span className="text-[8px] font-black uppercase text-rose-400 mt-0.5">SOS</span>
-                                                  </div>
-                                              </div>
+                                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative z-10">
+                                        <div className="flex gap-5 items-start">
+                                            {/* Pulsing SOS Icon */}
+                                            <div className="relative flex-shrink-0">
+                                                <div className="absolute inset-0 bg-rose-500 rounded-2xl blur-md animate-pulse opacity-60"></div>
+                                                <div className="w-16 h-16 bg-slate-950 rounded-2xl border-2 border-rose-500 flex flex-col items-center justify-center relative z-10 text-rose-500 shadow-xl">
+                                                    <AlertTriangle className="w-7 h-7 animate-bounce" />
+                                                    <span className="text-[8px] font-black uppercase text-rose-400 mt-0.5">SOS</span>
+                                                </div>
+                                            </div>
 
-                                              <div className="space-y-2">
-                                                 <div className="flex flex-wrap items-center gap-2">
-                                                     <h4 className="text-white font-bold text-lg flex items-center gap-2">
-                                                         {inc?.type || `${inc?.severity || 'General'} Alert`}
-                                                     </h4>
-                                                     <span className={`text-[10px] uppercase font-black px-3 py-1 rounded-full border ${
-                                                         inc?.status === 'Unit Dispatched' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40 shadow-md' :
-                                                         inc?.status === 'Escalated to State Admin' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' :
-                                                         'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
-                                                     }`}>
-                                                         {inc?.status || 'Active Alert'}
-                                                     </span>
-                                                     <span className="text-xs font-mono text-slate-500">#{inc?.incident_id || 'UNK'}</span>
-                                                 </div>
+                                            <div className="space-y-2">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <h4 className="text-white font-bold text-lg flex items-center gap-2">
+                                                        {inc?.type || `${inc?.severity || 'General'} Alert`}
+                                                    </h4>
+                                                    <span className={`text-[10px] uppercase font-black px-3 py-1 rounded-full border ${inc?.status === 'Unit Dispatched' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40 shadow-md' :
+                                                        inc?.status === 'Escalated to State Admin' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' :
+                                                            'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+                                                        }`}>
+                                                        {inc?.status || 'Active Alert'}
+                                                    </span>
+                                                    <span className="text-xs font-mono text-slate-500">#{inc?.incident_id || 'UNK'}</span>
+                                                </div>
 
-                                                 <p className="text-slate-200 text-sm font-medium bg-slate-950/70 p-3 rounded-xl border border-slate-800/90 leading-relaxed">
-                                                     "{inc?.description || 'No description provided.'}"
-                                                 </p>
+                                                <p className="text-slate-200 text-sm font-medium bg-slate-950/70 p-3 rounded-xl border border-slate-800/90 leading-relaxed">
+                                                    "{inc?.description || 'No description provided.'}"
+                                                </p>
 
-                                                 {/* Telemetry Strip */}
-                                                 <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-400 pt-1">
-                                                     <span className="flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-xl border border-slate-800 text-white">
-                                                         <Bus className="w-3.5 h-3.5 text-rose-400"/> Bus Reg: <strong>{formatBusReg(inc?.bus_id)}</strong>
-                                                     </span>
-                                                     <span className="flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-xl border border-slate-800 text-slate-300">
-                                                         <MapPin className="w-3.5 h-3.5 text-blue-400"/> Location: <strong>{getDynamicLocation(globalDistrict, idx)}</strong>
-                                                     </span>
-                                                     <span className="flex items-center gap-1.5 text-slate-400">
-                                                         <Clock className="w-3.5 h-3.5 text-amber-400"/> Reported: {inc?.reported_time ? new Date(inc.reported_time).toLocaleString() : 'N/A'}
-                                                     </span>
-                                                 </div>
-                                              </div>
-                                          </div>
+                                                {/* Telemetry Strip */}
+                                                <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-400 pt-1">
+                                                    <span className="flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-xl border border-slate-800 text-white">
+                                                        <Bus className="w-3.5 h-3.5 text-rose-400" /> Bus Reg: <strong>{formatBusReg(inc?.bus_id)}</strong>
+                                                    </span>
+                                                    <span className="flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-xl border border-slate-800 text-slate-300">
+                                                        <MapPin className="w-3.5 h-3.5 text-blue-400" /> Location: <strong>{getDynamicLocation(globalDistrict, idx)}</strong>
+                                                    </span>
+                                                    <span className="flex items-center gap-1.5 text-slate-400">
+                                                        <Clock className="w-3.5 h-3.5 text-amber-400" /> Reported: {inc?.reported_time ? new Date(inc.reported_time).toLocaleString() : 'N/A'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
 
-                                          {/* Action Buttons */}
-                                          <div className="flex flex-col gap-2.5 min-w-[220px] w-full lg:w-auto border-t lg:border-t-0 border-slate-800 pt-4 lg:pt-0">
-                                              <button 
-                                                 onClick={() => {
-                                                     setSelectedOption('Highway Patrol & Heavy Towing Team');
-                                                     setActiveModal({ type: 'dispatch', item: inc });
-                                                 }} 
-                                                 className="bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-white px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition shadow-lg shadow-rose-600/40 flex items-center justify-center gap-2 cursor-pointer border border-rose-400/30"
-                                              >
-                                                 <ShieldAlert className="w-4 h-4" /> Dispatch Nearest Unit
-                                              </button>
-                                              <button 
-                                                 onClick={() => {
-                                                     setSelectedOption('High Urgency State Command Directive');
-                                                     setActiveModal({ type: 'escalate', item: inc });
-                                                 }} 
-                                                 className="bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition border border-slate-700 flex items-center justify-center gap-2 cursor-pointer hover:border-rose-500/50"
-                                              >
-                                                 <AlertTriangle className="w-4 h-4 text-amber-400" /> Escalate to State Level
-                                              </button>
-                                          </div>
-                                     </div>
+                                        {/* Action Buttons */}
+                                        <div className="flex flex-col gap-2.5 min-w-[220px] w-full lg:w-auto border-t lg:border-t-0 border-slate-800 pt-4 lg:pt-0">
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedOption('Highway Patrol & Heavy Towing Team');
+                                                    setActiveModal({ type: 'dispatch', item: inc });
+                                                }}
+                                                className="bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-white px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition shadow-lg shadow-rose-600/40 flex items-center justify-center gap-2 cursor-pointer border border-rose-400/30"
+                                            >
+                                                <ShieldAlert className="w-4 h-4" /> Dispatch Nearest Unit
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedOption('High Urgency State Command Directive');
+                                                    setActiveModal({ type: 'escalate', item: inc });
+                                                }}
+                                                className="bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition border border-slate-700 flex items-center justify-center gap-2 cursor-pointer hover:border-rose-500/50"
+                                            >
+                                                <AlertTriangle className="w-4 h-4 text-amber-400" /> Escalate to State Level
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             ))}
 
-                             {safeIncidents.length === 0 && (
+                            {safeIncidents.length === 0 && (
                                 <div className="text-center p-14 bg-slate-900/60 border border-slate-800 rounded-3xl shadow-xl">
                                     <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
                                         <CheckCircle2 className="w-8 h-8 text-emerald-500" />
@@ -813,46 +874,46 @@ const RegionalAdminDashboard = () => {
                             <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-950 rounded-2xl p-8 border border-slate-800 shadow-xl relative overflow-hidden">
                                 <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
                                 <div className="flex items-center gap-8 relative z-10">
-                                     <div className="w-32 h-32 rounded-full border-4 border-emerald-500/20 flex items-center justify-center relative flex-shrink-0">
-                                          <div className="absolute inset-0 rounded-full border-4 border-emerald-500 border-t-transparent animate-[spin_3s_linear_infinite]"></div>
-                                          <TrendingUp className="w-12 h-12 text-emerald-400" />
-                                     </div>
-                                     <div>
-                                          <p className="text-emerald-500/80 uppercase tracking-widest text-xs font-black mb-2">Total Monthly Revenue (Estimated)</p>
-                                          <h1 className="text-6xl font-black text-white">₹{monthlyRevenueLakhs} <span className="text-2xl text-slate-500 font-medium tracking-normal">Lakhs</span></h1>
-                                          
-                                          <div className="flex gap-4 mt-6">
-                                               <div className="bg-slate-950/80 px-5 py-3 rounded-xl border border-slate-800/80 shadow-inner block">
-                                                    <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Active Fleet</p>
-                                                    <p className="text-xl font-bold text-white flex items-center gap-2"><Bus className="w-4 h-4 text-emerald-400"/> {globalDistrict.fleet}</p>
-                                               </div>
-                                               <div className="bg-slate-950/80 px-5 py-3 rounded-xl border border-slate-800/80 shadow-inner block">
-                                                    <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Yield / Bus / Month</p>
-                                                    <p className="text-xl font-bold text-blue-400">₹{parseFloat(((monthlyRevenueLakhs * 100000) / globalDistrict.fleet).toFixed(0)).toLocaleString()}</p>
-                                               </div>
-                                          </div>
-                                     </div>
+                                    <div className="w-32 h-32 rounded-full border-4 border-emerald-500/20 flex items-center justify-center relative flex-shrink-0">
+                                        <div className="absolute inset-0 rounded-full border-4 border-emerald-500 border-t-transparent animate-[spin_3s_linear_infinite]"></div>
+                                        <TrendingUp className="w-12 h-12 text-emerald-400" />
+                                    </div>
+                                    <div>
+                                        <p className="text-emerald-500/80 uppercase tracking-widest text-xs font-black mb-2">Total Monthly Revenue (Estimated)</p>
+                                        <h1 className="text-6xl font-black text-white">₹{monthlyRevenueLakhs} <span className="text-2xl text-slate-500 font-medium tracking-normal">Lakhs</span></h1>
+
+                                        <div className="flex gap-4 mt-6">
+                                            <div className="bg-slate-950/80 px-5 py-3 rounded-xl border border-slate-800/80 shadow-inner block">
+                                                <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Active Fleet</p>
+                                                <p className="text-xl font-bold text-white flex items-center gap-2"><Bus className="w-4 h-4 text-emerald-400" /> {globalDistrict.fleet}</p>
+                                            </div>
+                                            <div className="bg-slate-950/80 px-5 py-3 rounded-xl border border-slate-800/80 shadow-inner block">
+                                                <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Yield / Bus / Month</p>
+                                                <p className="text-xl font-bold text-blue-400">₹{parseFloat(((monthlyRevenueLakhs * 100000) / globalDistrict.fleet).toFixed(0)).toLocaleString()}</p>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            
+
                             <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl flex flex-col justify-between">
-                                 <div>
-                                      <h3 className="text-white font-bold mb-6 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-blue-400"/> Taluk Revenue Distribution</h3>
-                                      <div className="h-[220px] w-full">
-                                           <ResponsiveContainer width="100%" height="100%">
-                                               <BarChart data={globalDistrict.talukList.map(t => ({ name: t, revenue: Math.floor(Math.random() * 400) + 150 }))}>
-                                                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                                                   <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => val.substring(0,6)+'...'} />
-                                                   <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `₹${val}k`} />
-                                                   <Tooltip cursor={{fill: '#1e293b'}} contentStyle={{backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px'}} itemStyle={{color: '#38bdf8', fontWeight: 'bold'}} formatter={(value) => [`₹${value},000`, 'Revenue']} />
-                                                   <Bar dataKey="revenue" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={25} />
-                                               </BarChart>
-                                           </ResponsiveContainer>
-                                      </div>
-                                 </div>
-                                 <button className="w-full mt-4 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold py-2.5 rounded-lg transition border border-slate-700 flex items-center justify-center gap-2">
-                                     <BarChart3 className="w-4 h-4"/> Extract Full Report
-                                 </button>
+                                <div>
+                                    <h3 className="text-white font-bold mb-6 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-blue-400" /> Taluk Revenue Distribution</h3>
+                                    <div className="h-[220px] w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={globalDistrict.talukList.map(t => ({ name: t, revenue: Math.floor(Math.random() * 400) + 150 }))}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                                                <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => val.substring(0, 6) + '...'} />
+                                                <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `₹${val}k`} />
+                                                <Tooltip cursor={{ fill: '#1e293b' }} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }} itemStyle={{ color: '#38bdf8', fontWeight: 'bold' }} formatter={(value) => [`₹${value},000`, 'Revenue']} />
+                                                <Bar dataKey="revenue" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={25} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                                <button className="w-full mt-4 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold py-2.5 rounded-lg transition border border-slate-700 flex items-center justify-center gap-2">
+                                    <BarChart3 className="w-4 h-4" /> Extract Full Report
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -905,27 +966,27 @@ const RegionalAdminDashboard = () => {
                     <SidebarItem icon={ShieldAlert} label="Emergency Incidents" active={activeMenu === 'incidents'} onClick={() => loadTabData('incidents')} badge={incidents.length > 0 ? incidents.length : null} />
                 </div>
             </aside>
-            
+
             {/* Mobile Nav Bar */}
             <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 flex justify-around items-center h-16 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
                 <button onClick={() => loadTabData('overview')} className={`p-2 flex flex-col items-center flex-1 ${activeMenu === 'overview' ? 'text-blue-500' : 'text-slate-400'}`}>
-                    <Activity className="w-5 h-5"/>
+                    <Activity className="w-5 h-5" />
                     <span className="text-[10px] mt-1 font-bold uppercase">Map</span>
                 </button>
                 <button onClick={() => loadTabData('depots')} className={`p-2 flex flex-col items-center flex-1 ${activeMenu === 'depots' ? 'text-blue-500' : 'text-slate-400'}`}>
-                    <Building className="w-5 h-5"/>
+                    <Building className="w-5 h-5" />
                     <span className="text-[10px] mt-1 font-bold uppercase">Depots</span>
                 </button>
                 <button onClick={() => loadTabData('revenue_insights')} className={`p-2 flex flex-col items-center flex-1 ${activeMenu === 'revenue_insights' ? 'text-blue-500' : 'text-slate-400'}`}>
-                    <TrendingUp className="w-5 h-5"/>
+                    <TrendingUp className="w-5 h-5" />
                     <span className="text-[10px] mt-1 font-bold uppercase">Revenue</span>
                 </button>
                 <button onClick={() => loadTabData('complaints')} className={`p-2 flex flex-col items-center flex-1 ${activeMenu === 'complaints' ? 'text-blue-500' : 'text-slate-400'}`}>
-                    <MessageSquare className="w-5 h-5"/>
+                    <MessageSquare className="w-5 h-5" />
                     <span className="text-[10px] mt-1 font-bold uppercase">Feedback</span>
                 </button>
                 <button onClick={() => loadTabData('incidents')} className={`p-2 flex flex-col items-center flex-1 ${activeMenu === 'incidents' ? 'text-rose-500' : 'text-slate-400'} relative`}>
-                    <ShieldAlert className="w-5 h-5"/>
+                    <ShieldAlert className="w-5 h-5" />
                     <span className="text-[10px] mt-1 font-bold uppercase">Alerts</span>
                     {incidents.length > 0 && <span className="absolute top-1 right-[20%] w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-slate-900 shadow-[0_0_8px_rgba(244,63,94,0.8)] animate-pulse"></span>}
                 </button>
@@ -936,12 +997,11 @@ const RegionalAdminDashboard = () => {
                 {/* Toast Notification */}
                 {toast && (
                     <div className="fixed top-6 right-6 z-50 animate-in fade-in slide-in-from-top-5 duration-300">
-                        <div className={`px-5 py-4 rounded-2xl shadow-2xl border flex items-center gap-3 text-white text-sm font-bold backdrop-blur-xl ${
-                            toast.type === 'warning' ? 'bg-amber-950/90 border-amber-500/50 shadow-amber-500/20' : 'bg-emerald-950/90 border-emerald-500/50 shadow-emerald-500/20'
-                        }`}>
+                        <div className={`px-5 py-4 rounded-2xl shadow-2xl border flex items-center gap-3 text-white text-sm font-bold backdrop-blur-xl ${toast.type === 'warning' ? 'bg-amber-950/90 border-amber-500/50 shadow-amber-500/20' : 'bg-emerald-950/90 border-emerald-500/50 shadow-emerald-500/20'
+                            }`}>
                             <CheckCircle2 className={`w-5 h-5 ${toast.type === 'warning' ? 'text-amber-400' : 'text-emerald-400'}`} />
                             <span>{toast.message}</span>
-                            <button onClick={() => setToast(null)} className="ml-3 text-slate-400 hover:text-white"><X className="w-4 h-4"/></button>
+                            <button onClick={() => setToast(null)} className="ml-3 text-slate-400 hover:text-white"><X className="w-4 h-4" /></button>
                         </div>
                     </div>
                 )}
@@ -956,7 +1016,7 @@ const RegionalAdminDashboard = () => {
                                     {activeModal.type === 'direct' && <UserCheck className="w-5 h-5 text-emerald-500" />}
                                     {activeModal.type === 'dispatch' && <ShieldAlert className="w-5 h-5 text-rose-500" />}
                                     {activeModal.type === 'escalate' && <AlertTriangle className="w-5 h-5 text-amber-500" />}
-                                    
+
                                     {activeModal.type === 'route' && `Route Ticket #${activeModal.item.complaint_id} to Depot`}
                                     {activeModal.type === 'direct' && `Direct Action for Ticket #${activeModal.item.complaint_id}`}
                                     {activeModal.type === 'dispatch' && `Dispatch Unit for Bus #${activeModal.item.bus_id}`}
@@ -970,9 +1030,9 @@ const RegionalAdminDashboard = () => {
                             <form onSubmit={handleModalSubmit} className="space-y-4">
                                 <div>
                                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Target Action / Unit</label>
-                                    <input 
-                                        type="text" 
-                                        value={selectedOption} 
+                                    <input
+                                        type="text"
+                                        value={selectedOption}
                                         onChange={(e) => setSelectedOption(e.target.value)}
                                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
                                         placeholder="Enter target depot or dispatch team..."
@@ -982,7 +1042,7 @@ const RegionalAdminDashboard = () => {
 
                                 <div>
                                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Regional Admin Directive Notes</label>
-                                    <textarea 
+                                    <textarea
                                         value={modalNotes}
                                         onChange={(e) => setModalNotes(e.target.value)}
                                         rows={3}
@@ -992,26 +1052,44 @@ const RegionalAdminDashboard = () => {
                                 </div>
 
                                 <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
-                                    <button 
-                                        type="button" 
+                                    <button
+                                        type="button"
                                         onClick={() => setActiveModal(null)}
                                         className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition"
                                     >
                                         Cancel
                                     </button>
-                                    <button 
-                                        type="submit" 
+                                    <button
+                                        type="submit"
                                         disabled={actionLoading}
-                                        className={`px-6 py-2.5 rounded-xl text-xs font-bold text-white transition flex items-center gap-2 shadow-lg ${
-                                            activeModal.type === 'dispatch' ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30' :
+                                        className={`px-6 py-2.5 rounded-xl text-xs font-bold text-white transition flex items-center gap-2 shadow-lg ${activeModal.type === 'dispatch' ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30' :
                                             activeModal.type === 'escalate' ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/30' :
-                                            'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30'
-                                        }`}
+                                                'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30'
+                                            }`}
                                     >
-                                        {actionLoading ? <Settings className="w-4 h-4 animate-spin"/> : 'Confirm & Execute Directive'}
+                                        {actionLoading ? <Settings className="w-4 h-4 animate-spin" /> : 'Confirm & Execute Directive'}
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* Photo Proof Lightbox Zoom Modal */}
+                {photoModalUrl && (
+                    <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setPhotoModalUrl(null)}>
+                        <div className="relative max-w-3xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden p-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+                            <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800">
+                                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                                    <Camera className="w-4 h-4 text-blue-400" /> Passenger Photo Evidence Proof
+                                </span>
+                                <button onClick={() => setPhotoModalUrl(null)} className="text-slate-400 hover:text-white p-1 rounded-lg">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <div className="p-3 flex items-center justify-center max-h-[75vh] overflow-auto">
+                                <img src={photoModalUrl} alt="Complaint Evidence" className="max-w-full max-h-[70vh] rounded-xl object-contain shadow-lg" />
+                            </div>
                         </div>
                     </div>
                 )}

@@ -85,6 +85,11 @@ let readyPromise = new Promise((resolve, reject) => {
             status TEXT DEFAULT 'Active',
             wifi_available INTEGER DEFAULT 0,
             gps_device_id TEXT,
+            source TEXT,
+            destination TEXT,
+            departure TEXT,
+            arrival TEXT,
+            fare TEXT DEFAULT '₹55',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 
@@ -258,12 +263,19 @@ let readyPromise = new Promise((resolve, reject) => {
             category TEXT,
             route_id INTEGER REFERENCES Routes(route_id),
             bus_id INTEGER REFERENCES Buses(bus_id),
+            bus_number TEXT,
+            registration_number TEXT,
             location TEXT,
             reported_by TEXT,
+            description TEXT,
+            photo_url TEXT,
             severity TEXT DEFAULT 'Medium',
             status TEXT DEFAULT 'Open',
             escalation_level INTEGER DEFAULT 1,
-            created_date DATETIME DEFAULT CURRENT_TIMESTAMP
+            escalated_to TEXT DEFAULT 'Depot Admin',
+            resolution_remarks TEXT,
+            created_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 
         db.run(`CREATE TABLE IF NOT EXISTS Incidents (
@@ -328,6 +340,68 @@ let readyPromise = new Promise((resolve, reject) => {
             metadata TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
+
+        // BusSchedules - live editable schedule dataset for Passenger Search
+        db.run(`CREATE TABLE IF NOT EXISTS BusSchedules (
+            schedule_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            bus_number    TEXT NOT NULL,
+            from_city     TEXT NOT NULL,
+            to_city       TEXT NOT NULL,
+            departure     TEXT NOT NULL,
+            arrival       TEXT NOT NULL,
+            duration      TEXT DEFAULT '1h 30m',
+            fare          TEXT DEFAULT '₹55',
+            service_type  TEXT DEFAULT 'TNSTC Express',
+            status        TEXT DEFAULT 'Active',
+            depot_name    TEXT DEFAULT 'Dharmapuri Depot',
+            created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // Automated column migrations for existing Buses table
+        db.run("ALTER TABLE Buses ADD COLUMN source TEXT", () => { });
+        db.run("ALTER TABLE Buses ADD COLUMN destination TEXT", () => { });
+        db.run("ALTER TABLE Buses ADD COLUMN departure TEXT", () => { });
+        db.run("ALTER TABLE Buses ADD COLUMN arrival TEXT", () => { });
+        db.run("ALTER TABLE Buses ADD COLUMN fare TEXT DEFAULT '₹55'", () => { });
+
+        // Automated column migrations for existing Complaints table
+        db.run("ALTER TABLE Complaints ADD COLUMN description TEXT", () => { });
+        db.run("ALTER TABLE Complaints ADD COLUMN bus_number TEXT", () => { });
+        db.run("ALTER TABLE Complaints ADD COLUMN registration_number TEXT", () => { });
+        db.run("ALTER TABLE Complaints ADD COLUMN photo_url TEXT", () => { });
+        db.run("ALTER TABLE Complaints ADD COLUMN resolution_remarks TEXT", () => { });
+        db.run("ALTER TABLE Complaints ADD COLUMN updated_at DATETIME", () => { });
+
+        // Driver Garage Maintenance Tickets Table
+        db.run(`CREATE TABLE IF NOT EXISTS Driver_Garage_Tickets (
+            ticket_id TEXT PRIMARY KEY,
+            driver_id TEXT,
+            driver_name TEXT,
+            bus_number TEXT,
+            depot_name TEXT,
+            issue TEXT NOT NULL,
+            severity TEXT DEFAULT 'High',
+            status TEXT DEFAULT 'Open',
+            mechanic TEXT DEFAULT 'Unassigned',
+            resolution_notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`, () => {
+            db.get("SELECT COUNT(*) as count FROM Driver_Garage_Tickets", (err, row) => {
+                if (!err && row && row.count === 0) {
+                    const initialTickets = [
+                        ['GT-101', 'TN29-DRV-201', 'K. Murugan', 'TN-29-N-1542', 'Dharmapuri Depot', 'Rear brake chamber air leakage & pressure drop', 'Critical', 'In Progress', 'R. Periasamy', null],
+                        ['GT-102', 'TN33-DRV-104', 'S. Rajan', 'TN-33-N-0988', 'Dharmapuri Depot', 'Clutch plate slippage on Thoppur ghat incline', 'High', 'Open', 'Unassigned', null],
+                        ['GT-103', 'TN29-DRV-305', 'V. Sundaram', 'TN-29-N-1890', 'Dharmapuri Depot', 'Radiator hose puncture & coolant top-up required', 'High', 'Under Inspection', 'M. Arumugam', null],
+                        ['GT-104', 'TN29-DRV-412', 'P. Arumugam', 'TN-29-N-1258', 'Dharmapuri Depot', 'Headlight high-beam bulb & fuse replacement', 'Medium', 'Scheduled', 'G. Natarajan', null],
+                        ['GT-105', 'TN29-DRV-550', 'M. Suresh', 'TN-01-N-8821', 'Dharmapuri Depot', 'Speedometer telematics GPS sensor calibration', 'Low', 'Resolved', 'K. Senthil', 'Replaced speed pulse sensor. Calibrated with depot telematics bench.']
+                    ];
+                    const stmt = db.prepare(`INSERT INTO Driver_Garage_Tickets (ticket_id, driver_id, driver_name, bus_number, depot_name, issue, severity, status, mechanic, resolution_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                    initialTickets.forEach(t => stmt.run(t));
+                    stmt.finalize();
+                }
+            });
+        });
 
         db.run(`CREATE TABLE IF NOT EXISTS Audit_Logs (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -5,15 +5,24 @@ import pandas as pd
 import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import google.generativeai as genai
+# pyrefly: ignore [missing-import] 
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend", "database", "sptpis.sqlite"))
 
-# Initialize Gemini if key exists
+# Initialize Gemini if key exists and library is installed
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
-    llm_model = genai.GenerativeModel('gemini-1.5-flash')
+if GEMINI_KEY and genai:
+    try:
+        genai.configure(api_key=GEMINI_KEY)
+        llm_model = genai.GenerativeModel('gemini-1.5-flash')
+    except Exception as e:
+        print(f"Gemini configuration error: {e}")
+        llm_model = None
 else:
     llm_model = None
 

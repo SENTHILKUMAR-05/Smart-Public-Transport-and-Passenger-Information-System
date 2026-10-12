@@ -175,7 +175,24 @@ router.get('/all-trips', async (req, res) => {
 
 router.get('/buses', async (req, res) => {
     try {
-        const buses = await db.all(`SELECT * FROM Buses WHERE depot_name LIKE '%Dharmapuri%' OR depot_name IS NULL`);
+        const buses = await db.all(`
+            SELECT 
+                b.*,
+                COALESCE(NULLIF(b.source, ''), bs.from_city, r.source_city, '') as source,
+                COALESCE(NULLIF(b.destination, ''), bs.to_city, r.destination_city, '') as destination,
+                COALESCE(NULLIF(b.departure, ''), bs.departure, '') as departure,
+                COALESCE(NULLIF(b.arrival, ''), bs.arrival, '') as arrival,
+                COALESCE(NULLIF(b.fare, ''), bs.fare, '₹55') as fare
+            FROM Buses b
+            LEFT JOIN (
+                SELECT bus_number, from_city, to_city, departure, arrival, fare
+                FROM BusSchedules
+                GROUP BY bus_number
+            ) bs ON b.registration_number = bs.bus_number
+            LEFT JOIN Routes r ON b.current_route_id = r.route_id
+            WHERE b.depot_name LIKE '%Dharmapuri%' OR b.depot_name IS NULL
+            ORDER BY b.bus_id ASC
+        `);
         res.json(buses);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -461,13 +478,28 @@ router.delete('/trips/:id', async (req, res) => {
 
 router.post('/buses', async (req, res) => {
     try {
-        const { registration_number, bus_type, total_seats, status, gps_device_id, source, destination, departure, arrival, fare } = req.body;
+        let { registration_number, bus_type, total_seats, status, gps_device_id, source, destination, departure, arrival, fare } = req.body;
         const depot = await db.get(`SELECT name FROM Depots WHERE depot_id = ?`, [req.user.depot_id]);
+        const depotName = (depot && depot.name) ? depot.name : 'Dharmapuri Depot';
+
+        fare = fare ? (String(fare).startsWith('₹') ? fare : `₹${fare}`) : '₹55';
 
         const busRes = await db.run(`
-            INSERT INTO Buses (registration_number, bus_type, total_seats, depot_name, status, gps_device_id) 
-            VALUES (?, ?, ?, ?, ?, ?)
-        `, [registration_number, bus_type || 'Town Bus', total_seats || 54, depot.name, status || 'Active', gps_device_id]);
+            INSERT INTO Buses (registration_number, bus_type, total_seats, depot_name, status, gps_device_id, source, destination, departure, arrival, fare) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+            registration_number,
+            bus_type || 'Town Bus',
+            total_seats || 54,
+            depotName,
+            status || 'Active',
+            gps_device_id,
+            source ? source.trim() : '',
+            destination ? destination.trim() : '',
+            departure || '',
+            arrival || '',
+            fare
+        ]);
 
         if (status === 'Maintenance') {
             await db.run(`
@@ -476,29 +508,25 @@ router.post('/buses', async (req, res) => {
             `, [busRes.lastID, req.user.depot_id, 'General Repair', 'Unassigned', 'Open']);
         }
 
-        // Add to passenger portal dataset
+        // Add to BusSchedules table in database
         if (source && destination) {
             try {
-                const fs = require('fs');
-                const path = require('path');
-                const jsonPath = path.join(__dirname, '../../frontend/src/pages/bus_schedules.json');
-                if (fs.existsSync(jsonPath)) {
-                    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-                    data.push({
-                        id: `depot_added_${Date.now()}`,
-                        bus: registration_number,
-                        from: source,
-                        to: destination,
-                        departure: departure || '06:00 AM',
-                        arrival: arrival || '08:00 AM',
-                        service_type: bus_type || 'Town Bus',
-                        type: 'DIRECT',
-                        duration: '2h 00m',
-                        fare: fare || '₹55'
-                    });
-                    fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2), 'utf8');
-                }
-            } catch (e) { console.error('Failed to sync with passenger JSON'); }
+                await db.run(
+                    `INSERT INTO BusSchedules (bus_number, from_city, to_city, departure, arrival, duration, fare, service_type, status, depot_name)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?)`,
+                    [
+                        registration_number,
+                        source.trim(),
+                        destination.trim(),
+                        departure || '06:00 AM',
+                        arrival || '08:00 AM',
+                        '1h 30m',
+                        fare,
+                        bus_type || 'Town Bus',
+                        depotName
+                    ]
+                );
+            } catch (e) { console.error('Failed to insert into BusSchedules:', e.message); }
         }
 
         res.json({ success: true });
@@ -513,14 +541,29 @@ router.post('/buses', async (req, res) => {
 router.put('/buses/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { registration_number, bus_type, total_seats, status, gps_device_id, source, destination, departure, arrival, fare } = req.body;
+        let { registration_number, bus_type, total_seats, status, gps_device_id, source, destination, departure, arrival, fare } = req.body;
 
-        const oldBus = await db.get(`SELECT status FROM Buses WHERE bus_id = ?`, [id]);
+        const oldBus = await db.get(`SELECT * FROM Buses WHERE bus_id = ?`, [id]);
+        const oldReg = oldBus ? oldBus.registration_number : registration_number;
+
+        fare = fare ? (String(fare).startsWith('₹') ? fare : `₹${fare}`) : '₹55';
 
         await db.run(`
-            UPDATE Buses SET registration_number = ?, bus_type = ?, total_seats = ?, status = ?, gps_device_id = ? 
+            UPDATE Buses SET registration_number = ?, bus_type = ?, total_seats = ?, status = ?, gps_device_id = ?, source = ?, destination = ?, departure = ?, arrival = ?, fare = ? 
             WHERE bus_id = ?
-        `, [registration_number, bus_type, total_seats, status, gps_device_id, id]);
+        `, [
+            registration_number,
+            bus_type,
+            total_seats,
+            status,
+            gps_device_id,
+            source ? source.trim() : '',
+            destination ? destination.trim() : '',
+            departure || '',
+            arrival || '',
+            fare,
+            id
+        ]);
 
         if (oldBus) {
             if (status === 'Maintenance' && oldBus.status !== 'Maintenance') {
@@ -535,38 +578,49 @@ router.put('/buses/:id', async (req, res) => {
             }
         }
 
-        // Also update passenger portal dataset if route config is provided
+        // Also update BusSchedules database table
         if (source && destination) {
             try {
-                const fs = require('fs');
-                const path = require('path');
-                const jsonPath = path.join(__dirname, '../../frontend/src/pages/bus_schedules.json');
-                if (fs.existsSync(jsonPath)) {
-                    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-                    let found = data.find(b => b.bus === registration_number);
-                    if (found) {
-                        found.from = source;
-                        found.to = destination;
-                        found.departure = departure || found.departure;
-                        found.arrival = arrival || found.arrival;
-                        found.service_type = bus_type || found.service_type;
-                    } else {
-                        data.push({
-                            id: `depot_update_${Date.now()}`,
-                            bus: registration_number,
-                            from: source,
-                            to: destination,
-                            departure: departure || '06:00 AM',
-                            arrival: arrival || '08:00 AM',
-                            service_type: bus_type || 'Town Bus',
-                            type: 'DIRECT',
-                            duration: '2h 00m',
-                            fare: fare || '₹55'
-                        });
-                    }
-                    fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2), 'utf8');
+                const existingSchedule = await db.get(
+                    `SELECT schedule_id FROM BusSchedules WHERE bus_number = ? OR bus_number = ?`,
+                    [registration_number, oldReg]
+                );
+                if (existingSchedule) {
+                    await db.run(
+                        `UPDATE BusSchedules 
+                         SET bus_number = ?, from_city = ?, to_city = ?, departure = ?, arrival = ?, fare = ?, service_type = ?, status = ?
+                         WHERE schedule_id = ?`,
+                        [
+                            registration_number,
+                            source.trim(),
+                            destination.trim(),
+                            departure || '06:00 AM',
+                            arrival || '08:00 AM',
+                            fare,
+                            bus_type || 'Town Bus',
+                            status || 'Active',
+                            existingSchedule.schedule_id
+                        ]
+                    );
+                } else {
+                    await db.run(
+                        `INSERT INTO BusSchedules (bus_number, from_city, to_city, departure, arrival, duration, fare, service_type, status, depot_name)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            registration_number,
+                            source.trim(),
+                            destination.trim(),
+                            departure || '06:00 AM',
+                            arrival || '08:00 AM',
+                            '1h 30m',
+                            fare,
+                            bus_type || 'Town Bus',
+                            status || 'Active',
+                            (oldBus && oldBus.depot_name) ? oldBus.depot_name : 'Dharmapuri Depot'
+                        ]
+                    );
                 }
-            } catch (e) { console.error('Failed to update passenger JSON'); }
+            } catch (e) { console.error('Failed to update BusSchedules:', e.message); }
         }
 
         res.json({ success: true });
@@ -580,12 +634,120 @@ router.put('/buses/:id', async (req, res) => {
 
 router.delete('/buses/:id', async (req, res) => {
     try {
+        // Also remove all schedules for this bus
+        const bus = await db.get(`SELECT registration_number FROM Buses WHERE bus_id = ?`, [req.params.id]);
+        if (bus) {
+            await db.run(`DELETE FROM BusSchedules WHERE bus_number = ?`, [bus.registration_number]);
+        }
         await db.run(`DELETE FROM Buses WHERE bus_id = ?`, [req.params.id]);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
+
+// ============================================================
+// BUS SCHEDULE CRUD — used by Depot Admin & Passenger Search
+// ============================================================
+
+// GET all schedules for this depot
+router.get('/schedules', async (req, res) => {
+    try {
+        const schedules = await db.all(`
+            SELECT * FROM BusSchedules
+            WHERE depot_name LIKE '%Dharmapuri%' OR depot_name IS NULL
+            ORDER BY from_city, to_city, departure
+        `);
+        res.json(schedules);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST — add a new schedule entry
+router.post('/schedules', async (req, res) => {
+    try {
+        const { bus_number, from_city, to_city, departure, arrival, duration, fare, service_type } = req.body;
+        if (!bus_number || !from_city || !to_city || !departure || !arrival) {
+            return res.status(400).json({ error: 'bus_number, from_city, to_city, departure and arrival are required.' });
+        }
+
+        const depot = await db.get(`SELECT name FROM Depots WHERE depot_id = ?`, [req.user.depot_id]);
+        const depotName = (depot && depot.name) ? depot.name : 'Dharmapuri Depot';
+
+        const result = await db.run(
+            `INSERT INTO BusSchedules (bus_number, from_city, to_city, departure, arrival, duration, fare, service_type, status, depot_name)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?)`,
+            [
+                bus_number,
+                from_city.trim(),
+                to_city.trim(),
+                departure,
+                arrival,
+                duration || '1h 30m',
+                fare || '₹55',
+                service_type || 'TNSTC Express',
+                depotName
+            ]
+        );
+
+        // Also ensure bus exists in the Buses table
+        try {
+            await db.run(
+                `INSERT OR IGNORE INTO Buses (registration_number, bus_type, total_seats, depot_name, status)
+                 VALUES (?, ?, 54, ?, 'Active')`,
+                [bus_number, service_type || 'Express', depotName]
+            );
+        } catch (_) { }
+
+        res.json({ success: true, schedule_id: result.lastID });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// PUT — edit an existing schedule entry
+router.put('/schedules/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { bus_number, from_city, to_city, departure, arrival, duration, fare, service_type, status } = req.body;
+
+        await db.run(
+            `UPDATE BusSchedules
+             SET bus_number = ?, from_city = ?, to_city = ?, departure = ?, arrival = ?,
+                 duration = ?, fare = ?, service_type = ?, status = ?
+             WHERE schedule_id = ?`,
+            [
+                bus_number,
+                from_city.trim(),
+                to_city.trim(),
+                departure,
+                arrival,
+                duration || '1h 30m',
+                fare || '₹55',
+                service_type || 'TNSTC Express',
+                status || 'Active',
+                id
+            ]
+        );
+
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// DELETE — remove a schedule entry
+router.delete('/schedules/:id', async (req, res) => {
+    try {
+        await db.run(`DELETE FROM BusSchedules WHERE schedule_id = ?`, [req.params.id]);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+
 
 router.get('/staff', async (req, res) => {
     try {
@@ -714,24 +876,77 @@ router.get('/maintenance', async (req, res) => {
     }
 });
 
-const Complaint = require('../models/Complaint');
-
 router.get('/complaints', async (req, res) => {
     try {
-        const complaints = await Complaint.find().sort({ created_date: -1 });
+        const complaints = await db.all(`
+            SELECT c.*, 
+                   COALESCE(b.registration_number, c.bus_number, c.registration_number) as registration_number,
+                   COALESCE(r.name, 'Express Route') as route_name
+            FROM Complaints c
+            LEFT JOIN Buses b ON c.bus_id = b.bus_id
+            LEFT JOIN Routes r ON c.route_id = r.route_id
+            ORDER BY c.created_date DESC
+        `);
 
-        // Map fields to match UI expectations
-        const mapped = complaints.map(c => {
-            const obj = c.toObject();
-            return {
-                ...obj,
-                complaint_id: obj._id,
-                registration_number: obj.busNumber,
-                route_name: 'Mapped via DB',
-            };
-        });
+        res.json(complaints);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
-        res.json(mapped);
+// Resolve complaint by Depot Admin
+router.put('/complaints/:id/resolve', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { remarks } = req.body;
+        const resolutionNote = remarks || 'Resolved by Dharmapuri Depot Admin.';
+
+        await db.run(`
+            UPDATE Complaints 
+            SET status = 'Resolved',
+                resolution_remarks = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE complaint_id = ?
+        `, [resolutionNote, id]);
+
+        const updated = await db.get(`SELECT * FROM Complaints WHERE complaint_id = ?`, [id]);
+
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('complaint_updated', updated);
+        }
+
+        res.json({ success: true, complaint: updated });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Escalate complaint from Depot Admin (Level 1) to Regional Admin (Level 2)
+router.put('/complaints/:id/escalate', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { reason } = req.body;
+        const escalationRemarks = reason ? `Escalated to Regional Admin: ${reason}` : 'Escalated by Depot Manager to Salem Regional Division for comprehensive inquiry.';
+
+        await db.run(`
+            UPDATE Complaints 
+            SET status = 'Escalated to Regional Admin',
+                escalation_level = 2,
+                escalated_to = 'Regional Admin',
+                resolution_remarks = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE complaint_id = ?
+        `, [escalationRemarks, id]);
+
+        const updated = await db.get(`SELECT * FROM Complaints WHERE complaint_id = ?`, [id]);
+
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('complaint_updated', updated);
+        }
+
+        res.json({ success: true, complaint: updated });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -747,6 +962,49 @@ router.get('/incidents', async (req, res) => {
             ORDER BY i.reported_time DESC
         `);
         res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Depot Admin Driver Garage Maintenance Tickets Endpoints
+router.get('/garage-tickets', async (req, res) => {
+    try {
+        const tickets = await db.all(`SELECT * FROM Driver_Garage_Tickets ORDER BY created_at DESC`);
+        res.json({ success: true, tickets });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+router.put('/garage-tickets/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, mechanic, resolution_notes } = req.body;
+
+        const ticket = await db.get(`SELECT * FROM Driver_Garage_Tickets WHERE ticket_id = ?`, [id]);
+        if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+        const updatedStatus = status || ticket.status;
+        const updatedMechanic = mechanic || ticket.mechanic;
+        const updatedNotes = resolution_notes || ticket.resolution_notes;
+        const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+
+        await db.run(`
+            UPDATE Driver_Garage_Tickets 
+            SET status = ?, mechanic = ?, resolution_notes = ?, updated_at = ?
+            WHERE ticket_id = ?
+        `, [updatedStatus, updatedMechanic, updatedNotes, now, id]);
+
+        const updatedTicket = await db.get(`SELECT * FROM Driver_Garage_Tickets WHERE ticket_id = ?`, [id]);
+
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('garage_ticket_updated_broadcast', updatedTicket);
+            io.emit('sptpis_garage_ticket_updated', updatedTicket);
+        }
+
+        res.json({ success: true, ticket: updatedTicket });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
