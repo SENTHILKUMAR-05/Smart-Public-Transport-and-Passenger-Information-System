@@ -63,6 +63,7 @@ const StateAdminDashboard = () => {
 
         if (socket) {
             const handleComplaintSync = () => {
+                axios.get('/api/state-admin/complaints').then(res => setComplaints(res.data)).catch(console.error);
                 if (activeMenu === 'complaints') {
                     loadTabData('complaints');
                 }
@@ -705,13 +706,15 @@ const StateAdminDashboard = () => {
                 const backendEscalatedComplaints = Array.isArray(complaints) ? complaints.map(c => ({
                     id: `CMP-${c.complaint_id || c.id}`,
                     raw_id: c.complaint_id || c.id,
+                    status: c.status,
+                    escalation_level: c.escalation_level,
                     category: c.category || 'General Complaint',
                     severity: c.severity || (c.escalation_level === 3 ? 'Critical' : 'High'),
                     location: `${c.registration_number || c.bus_number || 'Depot Fleet'} (${c.route_name || 'Highway Sector'})`,
                     customer: `${c.user_id || 'Passenger'} (Ticket #${c.complaint_id})`,
                     reportedAt: c.created_date ? new Date(c.created_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today',
-                    depotAdmin: { name: 'Dharmapuri Depot', status: c.escalation_level > 1 ? 'Escalated (>24h SLA)' : 'Under Depot Review' },
-                    regionalAdmin: { name: 'Salem Division', status: c.escalation_level >= 3 ? 'Escalated (>48h SLA)' : 'Pending Region Action' },
+                    depotAdmin: { name: 'Dharmapuri Depot', status: c.status === 'Resolved' ? 'Resolved' : (c.escalation_level > 1 ? 'Escalated (>24h SLA)' : 'Under Depot Review') },
+                    regionalAdmin: { name: 'Salem Division', status: c.status === 'Resolved' ? 'Resolved by Regional Command' : (c.escalation_level >= 3 ? 'Escalated (>48h SLA)' : 'Pending Region Action') },
                     description: c.description || c.text || 'No description provided.',
                     resolution_remarks: c.resolution_remarks,
                     photo_url: c.photo_url
@@ -853,13 +856,18 @@ const StateAdminDashboard = () => {
                                         {/* Left: Complaint Details */}
                                         <div className="flex-1 space-y-4 relative z-10">
                                             <div className="flex flex-col sm:flex-row justify-between sm:items-start gap-2">
-                                                <div>
-                                                    <span className="bg-slate-800/80 border border-slate-600 text-slate-300 px-3 py-1 text-xs font-bold rounded-md uppercase tracking-widest font-mono mr-3 inline-block shadow-inner">
+                                                <div className="flex items-center flex-wrap gap-2">
+                                                    <span className="bg-slate-800/80 border border-slate-600 text-slate-300 px-3 py-1 text-xs font-bold rounded-md uppercase tracking-widest font-mono mr-1 inline-block shadow-inner">
                                                         {comp.id}
                                                     </span>
                                                     <span className={`px-3 py-1 text-xs font-black rounded-md uppercase tracking-widest shadow-inner inline-block ${comp.severity === 'Critical' ? 'bg-rose-500/10 border border-rose-500/30 text-rose-400' : 'bg-amber-500/10 border border-amber-500/30 text-amber-400'}`}>
                                                         {comp.severity} Priority
                                                     </span>
+                                                    {comp.status === 'Resolved' && (
+                                                        <span className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 px-3 py-1 text-xs font-black rounded-md uppercase tracking-widest shadow-inner inline-block">
+                                                            ✓ Resolved
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">{comp.reportedAt}</div>
                                             </div>
@@ -939,34 +947,51 @@ const StateAdminDashboard = () => {
                                                 </div>
                                                 {/* Phase 2 */}
                                                 <div className="relative group/step mt-6">
-                                                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.8 }} className="absolute -left-[41px] bg-slate-900 border-2 border-rose-400 w-[20px] h-[20px] rounded-full z-10 shadow-[0_0_10px_rgba(244,63,94,0.5)] flex items-center justify-center">
-                                                        <div className="w-2 h-2 bg-rose-400 rounded-full"></div>
+                                                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.8 }} className={`absolute -left-[41px] bg-slate-900 border-2 ${comp.status === 'Resolved' ? 'border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'border-rose-400 shadow-[0_0_10px_rgba(244,63,94,0.5)]'} w-[20px] h-[20px] rounded-full z-10 flex items-center justify-center`}>
+                                                        <div className={`w-2 h-2 ${comp.status === 'Resolved' ? 'bg-emerald-400' : 'bg-rose-400'} rounded-full`}></div>
                                                     </motion.div>
                                                     <h4 className="text-xs font-black text-white uppercase tracking-wider">Level 2: Regional Admin</h4>
                                                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end mt-1.5 gap-1">
                                                         <div className="text-[11px] text-slate-400 font-medium font-mono bg-slate-900/50 px-2 py-1 rounded inline-block border border-slate-700">Resp: {comp.regionalAdmin.name}</div>
-                                                        <span className="text-[9px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-400 px-2 py-1 rounded border border-rose-500/20 self-start sm:self-auto shrink-0 shadow-inner block w-fit">{comp.regionalAdmin.status}</span>
+                                                        <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded border self-start sm:self-auto shrink-0 shadow-inner block w-fit ${comp.status === 'Resolved' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>{comp.regionalAdmin.status}</span>
                                                     </div>
                                                 </div>
                                                 {/* Phase 3 */}
                                                 <div className="relative mt-6 group/step">
-                                                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 1.4 }} className="absolute -left-[47px] bg-rose-600 border-[4px] border-slate-900 w-[32px] h-[32px] rounded-full shadow-[0_0_20px_rgba(225,29,72,0.8)] animate-[pulse_1.5s_ease-in-out_infinite] flex items-center justify-center text-white z-20 hover:scale-110 transition-transform">
-                                                        <AlertTriangle className="w-4 h-4" />
+                                                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 1.4 }} className={`absolute -left-[47px] ${comp.status === 'Resolved' ? 'bg-emerald-600 shadow-[0_0_20px_rgba(16,185,129,0.8)]' : 'bg-rose-600 shadow-[0_0_20px_rgba(225,29,72,0.8)] animate-[pulse_1.5s_ease-in-out_infinite]'} border-[4px] border-slate-900 w-[32px] h-[32px] rounded-full flex items-center justify-center text-white z-20 hover:scale-110 transition-transform`}>
+                                                        {comp.status === 'Resolved' ? <Check className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
                                                     </motion.div>
-                                                    <h4 className="text-[13px] font-black text-rose-400 uppercase tracking-wider bg-rose-500/5 px-3 py-1 rounded-lg border border-rose-500/10 inline-block">Level 3: State Command</h4>
-                                                    <p className="text-[11px] text-slate-300 font-semibold mt-2.5 max-w-[280px] leading-relaxed tracking-wide border-l-2 border-rose-500/50 pl-3">
-                                                        SLA severely breached. Mandatory intervention required to resolve issue and penalize staff.
+                                                    <h4 className={`text-[13px] font-black ${comp.status === 'Resolved' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-rose-400 bg-rose-500/5 border-rose-500/10'} uppercase tracking-wider px-3 py-1 rounded-lg border inline-block`}>
+                                                        Level 3: State Command
+                                                    </h4>
+                                                    <p className={`text-[11px] text-slate-300 font-semibold mt-2.5 max-w-[280px] leading-relaxed tracking-wide border-l-2 ${comp.status === 'Resolved' ? 'border-emerald-500/50' : 'border-rose-500/50'} pl-3`}>
+                                                        {comp.status === 'Resolved' ? (comp.resolution_remarks ? `Resolved: ${comp.resolution_remarks}` : 'Complaint successfully resolved and closed by Regional Command.') : 'SLA severely breached. Mandatory intervention required to resolve issue and penalize staff.'}
                                                     </p>
                                                 </div>
                                             </div>
 
                                             <div className="flex flex-col gap-3 mt-2 pt-5 border-t border-slate-800/80">
-                                                <button onClick={() => handleResolveCompensate(comp.id)} className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black py-3 rounded-xl shadow-[0_4px_15px_rgba(16,185,129,0.3)] hover:shadow-[0_4px_25px_rgba(16,185,129,0.5)] transition-all flex items-center justify-center gap-2 text-sm border-b-2 border-emerald-700 active:border-b-0 active:translate-y-px">
-                                                    <CheckCircle2 className="w-5 h-5" /> Resolve & Compensate Customer
-                                                </button>
-                                                <button onClick={() => handleIssueDemerit(comp.id, comp.depotAdmin.name.split(' (')[0], comp.regionalAdmin.name.split(' (')[0])} className="w-full bg-slate-800/80 hover:bg-rose-950/80 border border-slate-700 hover:border-rose-500/50 text-slate-300 hover:text-rose-100 font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-[11px] uppercase tracking-wider group shadow-inner">
-                                                    Issue Demerits to Negligent Admins <Zap className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:animate-bounce transition-colors" />
-                                                </button>
+                                                {comp.status === 'Resolved' ? (
+                                                    // Complaint was resolved!
+                                                    <div className="w-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-black py-3 rounded-xl flex items-center justify-center gap-2 text-sm shadow-[0_0_15px_rgba(16,185,129,0.15)]">
+                                                        <CheckCircle2 className="w-5 h-5 text-emerald-400" /> ✓ Resolved
+                                                    </div>
+                                                ) : (comp.regionalAdmin?.status?.toLowerCase().includes('escalat') || comp.regionalAdmin?.status?.toLowerCase().includes('forward') || comp.escalation_level >= 3 || comp.status?.toLowerCase().includes('state') || comp.regionalAdmin?.status?.toLowerCase().includes('ignored sla') || comp.regionalAdmin?.status?.toLowerCase().includes('rejected') || !comp.raw_id) ? (
+                                                    // Complaint was forwarded from Regional Admin → State Admin can resolve it
+                                                    <>
+                                                        <button onClick={() => handleResolveCompensate(comp.id)} className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black py-3 rounded-xl shadow-[0_4px_15px_rgba(16,185,129,0.3)] hover:shadow-[0_4px_25px_rgba(16,185,129,0.5)] transition-all flex items-center justify-center gap-2 text-sm border-b-2 border-emerald-700 active:border-b-0 active:translate-y-px">
+                                                            <CheckCircle2 className="w-5 h-5" /> Mark Resolve &amp; Compensate
+                                                        </button>
+                                                        <button onClick={() => handleIssueDemerit(comp.id, comp.depotAdmin.name.split(' (')[0], comp.regionalAdmin.name.split(' (')[0])} className="w-full bg-slate-800/80 hover:bg-rose-950/80 border border-slate-700 hover:border-rose-500/50 text-slate-300 hover:text-rose-100 font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-[11px] uppercase tracking-wider group shadow-inner">
+                                                            Issue Demerits to Negligent Admins <Zap className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:animate-bounce transition-colors" />
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    // Complaint NOT yet forwarded to State → show Under Review
+                                                    <div className="w-full bg-amber-500/10 border border-amber-500/30 text-amber-400 font-bold py-3 rounded-xl flex items-center justify-center gap-2 text-sm">
+                                                        <Clock className="w-5 h-5" /> Under Review
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 

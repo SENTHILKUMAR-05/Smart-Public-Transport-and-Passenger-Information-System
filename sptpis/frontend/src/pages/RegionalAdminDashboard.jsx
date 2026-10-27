@@ -657,8 +657,18 @@ const RegionalAdminDashboard = () => {
                                                     <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
                                                     <span>↗ Forwarded to State HQ (Under Review)</span>
                                                 </div>
-                                            ) : (
+                                            ) : (c.escalation_level >= 1 || (c.status && (c.status === 'Escalated' || c.status === 'Under Investigation' || c.status.toLowerCase().includes('escalat') || c.status.toLowerCase().includes('forward')))) ? (
+                                                // Complaint was forwarded FROM depot admin → Regional Admin can act on it
                                                 <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedOption('Issue Direct Disciplinary Warning & Rectify');
+                                                            setActiveModal({ type: 'direct', item: c });
+                                                        }}
+                                                        className="flex-1 lg:flex-none bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 cursor-pointer"
+                                                    >
+                                                        <CheckCircle2 className="w-3.5 h-3.5" /> Mark Resolve
+                                                    </button>
                                                     <button
                                                         onClick={() => {
                                                             setSelectedOption(getTalukDepotName(globalDistrict, idx));
@@ -670,15 +680,6 @@ const RegionalAdminDashboard = () => {
                                                     </button>
                                                     <button
                                                         onClick={() => {
-                                                            setSelectedOption('Issue Direct Disciplinary Warning & Rectify');
-                                                            setActiveModal({ type: 'direct', item: c });
-                                                        }}
-                                                        className="flex-1 lg:flex-none bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition shadow-lg shadow-blue-600/30 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-blue-400"
-                                                    >
-                                                        <UserCheck className="w-3.5 h-3.5" /> Resolve Direct
-                                                    </button>
-                                                    <button
-                                                        onClick={() => {
                                                             setSelectedOption('Escalate to State Transport Command Center');
                                                             setActiveModal({ type: 'escalate_state', item: c });
                                                         }}
@@ -686,6 +687,12 @@ const RegionalAdminDashboard = () => {
                                                     >
                                                         <ShieldAlert className="w-3.5 h-3.5" /> Escalate to State HQ &rarr;
                                                     </button>
+                                                </div>
+                                            ) : (
+                                                // Complaint NOT yet forwarded from depot → show Under Review badge
+                                                <div className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3.5 py-2 rounded-xl flex items-center gap-1.5" title="Complaint is still being reviewed at depot level">
+                                                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                                    <span>Under Review</span>
                                                 </div>
                                             )}
                                         </div>
