@@ -164,7 +164,7 @@ router.post('/recommend-route', async (req, res) => {
 
 // Gemini API Configuration for RAG AI Assistant
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const CANDIDATE_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-lite-latest'];
+const CANDIDATE_MODELS = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'gemini-2.0-flash-lite'];
 
 // Helper to call Google Gemini API with system instructions, multi-turn context, and candidate model fallback
 async function callGemini(systemPrompt, userQuery, history = []) {

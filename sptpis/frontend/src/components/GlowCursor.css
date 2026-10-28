@@ -1,0 +1,27 @@
+.glow-cursor-wrapper {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+}
+
+.glow-cursor__canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  user-select: none;
+  z-index: 99999;
+  will-change: transform;
+}
+
+.glow-cursor__content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 100%;
+}
+
+.glow-cursor--fallback {
+  cursor: default;
+}

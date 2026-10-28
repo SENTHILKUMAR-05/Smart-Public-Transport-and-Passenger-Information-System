@@ -1,0 +1,44 @@
+.electric-border {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.electric-border__canvas {
+  position: absolute;
+  z-index: 20;
+  display: block;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.electric-border__inner {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  height: 100%;
+}
+
+/* Graceful Fallback if WebGL2 is unsupported or disabled */
+.electric-border--fallback {
+  box-shadow: 0 0 20px rgba(125, 249, 255, 0.4), inset 0 0 15px rgba(125, 249, 255, 0.2);
+  border: 1.5px solid rgba(125, 249, 255, 0.7);
+  animation: electric-fallback-pulse 2.2s infinite ease-in-out alternate;
+}
+
+@keyframes electric-fallback-pulse {
+  0% {
+    box-shadow: 0 0 12px rgba(125, 249, 255, 0.3), inset 0 0 8px rgba(125, 249, 255, 0.15);
+    border-color: rgba(125, 249, 255, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 26px rgba(125, 249, 255, 0.65), 0 0 45px rgba(125, 249, 255, 0.25), inset 0 0 16px rgba(125, 249, 255, 0.3);
+    border-color: rgba(125, 249, 255, 0.95);
+  }
+  100% {
+    box-shadow: 0 0 15px rgba(125, 249, 255, 0.35), inset 0 0 10px rgba(125, 249, 255, 0.2);
+    border-color: rgba(125, 249, 255, 0.6);
+  }
+}

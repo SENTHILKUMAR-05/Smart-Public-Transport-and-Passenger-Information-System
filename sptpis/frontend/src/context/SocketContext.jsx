@@ -14,7 +14,8 @@ export const SocketProvider = ({ children }) => {
   const [lastSystemAlert, setLastSystemAlert] = useState(null);
 
   useEffect(() => {
-    const socketInstance = io('', {
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || '';
+    const socketInstance = io(socketUrl, {
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,
     });
