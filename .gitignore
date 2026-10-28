@@ -4,17 +4,28 @@
 !.env.example
 *.env
 
-# Dependencies
+# Dependencies (ignore everywhere)
 node_modules/
+**/node_modules/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Production build outputs
+dist/
+**/dist/
+build/
+**/build/
+.vite/
+**/.vite/
+
+# Database files that change dynamically
+*.sqlite-journal
 
 # Logs & temporary files
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.log
-
 .DS_Store
 Thumbs.db
