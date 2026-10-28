@@ -8,8 +8,8 @@ const ChatbotModal = () => {
     {
       id: 1,
       sender: 'ai',
-      text: "Hi! I am your TNSTC AI Assistant 🤖\nAsk me about bus timings, fares, seats, or live tracking for any route!",
-      actions: ["🚌 Sathy to Erode Timings", "💺 Check Seat Availability", "🎫 Ticket Fare Rates"]
+      text: "Vanakkam! I am your TNSTC AI Assistant 🤖\nPowered by real-time fleet telemetry & Gemini AI.\n\nAsk me about bus timings, ticket concessions, live route tracking, or seat availability!",
+      actions: ["🚌 Sathy to Erode Timings", "🎫 Women Free Travel Rules", "💺 Check Seat Availability", "📍 Live GPS Tracking"]
     }
   ]);
   const [input, setInput] = useState('');
@@ -67,7 +67,26 @@ const ChatbotModal = () => {
     if (!text) return null;
     const lines = text.split('\n');
     return lines.map((line, idx) => {
-      const parts = line.split(/(\*\*.*?\*\*)/g);
+      let displayLine = line;
+      let isBullet = false;
+      const trimmed = displayLine.trim();
+
+      if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+        displayLine = '• ' + trimmed.slice(2);
+        isBullet = true;
+      } else if (displayLine.startsWith('•') || displayLine.startsWith('🚌') || displayLine.startsWith('📍') || displayLine.startsWith('⏱️') || displayLine.startsWith('🎫') || displayLine.startsWith('💺') || displayLine.match(/^\d+\./)) {
+        isBullet = true;
+      }
+
+      if (trimmed.startsWith('### ')) {
+        return (
+          <div key={idx} className="font-extrabold text-sm text-white mt-2 mb-1 border-b border-slate-800 pb-0.5">
+            {trimmed.slice(4)}
+          </div>
+        );
+      }
+
+      const parts = displayLine.split(/(\**.*?\**)/g);
       const lineContent = parts.map((part, pIdx) => {
         if (part.startsWith('**') && part.endsWith('**')) {
           return <strong key={pIdx} className="font-bold text-emerald-300">{part.slice(2, -2)}</strong>;
@@ -76,7 +95,7 @@ const ChatbotModal = () => {
       });
 
       return (
-        <div key={idx} className={line.startsWith('•') || line.startsWith('🚌') || line.startsWith('📍') || line.startsWith('⏱️') || line.startsWith('🎫') || line.startsWith('💺') ? 'my-0.5 font-medium' : ''}>
+        <div key={idx} className={isBullet ? 'my-0.5 font-medium pl-1' : (trimmed === '' ? 'h-1.5' : '')}>
           {lineContent}
         </div>
       );
@@ -115,7 +134,7 @@ const ChatbotModal = () => {
                 </h3>
                 <p className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  Real-Time Fleet RAG
+                  Gemini AI • Live Fleet RAG
                 </p>
               </div>
             </div>
@@ -183,7 +202,7 @@ const ChatbotModal = () => {
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce" />
                 <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce delay-100" />
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce delay-200" />
-                <span className="font-medium text-slate-400">Fetching live TNSTC schedule...</span>
+                <span className="font-medium text-slate-400">Analyzing live fleet &amp; reasoning...</span>
               </div>
             )}
             <div ref={messagesEndRef} />

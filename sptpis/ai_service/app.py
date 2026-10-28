@@ -7,24 +7,40 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 # pyrefly: ignore [missing-import] 
 
-try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
+import json
+import urllib.request
+import urllib.error
 
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend", "database", "sptpis.sqlite"))
 
-# Initialize Gemini if key exists and library is installed
+# Initialize Gemini API configuration
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-if GEMINI_KEY and genai:
-    try:
-        genai.configure(api_key=GEMINI_KEY)
-        llm_model = genai.GenerativeModel('gemini-1.5-flash')
-    except Exception as e:
-        print(f"Gemini configuration error: {e}")
-        llm_model = None
-else:
-    llm_model = None
+CANDIDATE_MODELS = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest']
+
+def call_gemini_python(prompt, system_instruction=None):
+    if not GEMINI_KEY:
+        return None
+    for model in CANDIDATE_MODELS:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.4, "maxOutputTokens": 800}
+            }
+            if system_instruction:
+                payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                res_data = json.loads(resp.read().decode("utf-8"))
+                if "candidates" in res_data and len(res_data["candidates"]) > 0:
+                    parts = res_data["candidates"][0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "")
+        except Exception as e:
+            print(f"Gemini {model} fallback in Python: {e}")
+            continue
+    return None
 
 app = Flask(__name__)
 CORS(app)
@@ -242,20 +258,27 @@ def chatbot():
     
     # 1. Retrieve Current Live Context from DB
     context_str = "CURRENT SYSTEM DATA UNAVAILABLE"
+    schedules_str = ""
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         
-        buses = cur.execute("SELECT registration_number, current_route_id, status FROM Buses").fetchall()
-        routes = cur.execute("SELECT route_id, name, source_city, destination_city FROM Routes").fetchall()
-        trips = cur.execute("SELECT trip_id, bus_id, route_id, scheduled_departure, status FROM Trips WHERE status != 'Completed'").fetchall()
+        # Check matching schedules
+        schedules = cur.execute(
+            "SELECT bus_number, from_city, to_city, departure, arrival, duration, fare, service_type, status FROM BusSchedules LIMIT 8"
+        ).fetchall()
+        if schedules:
+            schedules_str = "\n".join([f"• {s['bus_number']} ({s['service_type']}): {s['from_city']} ➔ {s['to_city']} | Dep: {s['departure']}, Arr: {s['arrival']} ({s['duration']}) | Fare: {s['fare']}" for s in schedules[:6]])
+
+        buses = cur.execute("SELECT registration_number, current_route_id, status FROM Buses LIMIT 5").fetchall()
+        routes = cur.execute("SELECT route_id, name, source_city, destination_city FROM Routes LIMIT 5").fetchall()
+        trips = cur.execute("SELECT trip_id, bus_id, route_id, scheduled_departure, status, delay_mins FROM Trips WHERE status != 'Completed' LIMIT 5").fetchall()
         
-        bus_str = ", ".join([f"{b['registration_number']} (Route {b['current_route_id']}, Stat: {b['status']})" for b in buses[:5]])
-        route_str = ", ".join([f"R{r['route_id']}: {r['source_city']} to {r['destination_city']}" for r in routes[:5]])
-        trip_str = ", ".join([f"Trip {t['trip_id']} departs at {t['scheduled_departure']} (Stat: {t['status']})" for t in trips[:5]])
+        bus_str = ", ".join([f"{b['registration_number']} (Status: {b['status']})" for b in buses[:5]])
+        trip_str = ", ".join([f"Trip {t['trip_id']} departs at {t['scheduled_departure']} (Delay: {t['delay_mins']}m)" for t in trips[:5]])
         
-        context_str = f"Live Buses: {bus_str}. Routes: {route_str}. Active Trips: {trip_str}."
+        context_str = f"Live Buses: {bus_str}. Active Trips: {trip_str}."
         conn.close()
     except Exception as e:
         print("DB Access error for RAG:", e)
@@ -263,34 +286,44 @@ def chatbot():
     response_text = ""
     suggested_actions = ["Check Bus Timing", "Live Tracking", "Book a ticket"]
 
-    # 2. Use Gemini API if configured
-    if llm_model:
-        prompt = f"""You are the Tamil Nadu Smart Public Transport (TNSTC) AI Assistant. 
-Answer the passenger's query dynamically using ONLY the following Live Database Context (do not invent data, if you lack info just say so kindly):
-Live Context: {context_str}
+    # 2. Use Gemini API
+    system_instruction = f"""You are the official Tamil Nadu Smart Public Transport (TNSTC & SETC) AI Assistant.
+Analyze the passenger's situation dynamically.
+Live Schedules:
+{schedules_str}
+Live Context:
+{context_str}
+Policies:
+• Women free travel on ordinary town buses (Vidiyal Payanam).
+• Student pass free; Senior citizens 10% discount on express/SETC.
+• Grievance SLA: 3-tier escalation (Depot 24h -> Regional 48h -> State Command resolution).
+• Emergency helpline: 1800-425-5432.
 
-Passenger Query: {message}
+Respond conversationally, concisely, and with markdown bolding and bullet points.
+At the end of your response, output on a new line:
+SUGGESTED_ACTIONS: ["Action 1", "Action 2", "Action 3"]"""
 
-Provide a helpful, realistic, short and conversational response."""
-        try:
-            resp = llm_model.generate_content(prompt)
-            response_text = resp.text.strip()
-        except Exception as e:
-            response_text = f"[AI API Error - Fallback] Our live data shows: {context_str}. How else can I help?"
-    else:
-        # 3. Dynamic Rule Fallback if no API key is provided
-        message_low = message.lower()
-        if "bus" in message_low or "route" in message_low or "time" in message_low:
-            response_text = f"Here is the real-time data I found on our servers:\n{context_str}\n\n(Note: Define GEMINI_API_KEY environment variable to enable natural language parsing of this data!)"
+    gemini_reply = call_gemini_python(message, system_instruction=system_instruction)
+    if gemini_reply:
+        import re
+        action_match = re.search(r'SUGGESTED_ACTIONS:s*([.*?])', gemini_reply, re.DOTALL)
+        if action_match:
+            try:
+                suggested_actions = json.loads(action_match.group(1))
+                response_text = re.sub(r'SUGGESTED_ACTIONS:.*', '', gemini_reply, flags=re.DOTALL).strip()
+            except Exception:
+                response_text = gemini_reply.strip()
         else:
-            response_text = "I am connected to the live TNSTC database! Please ask me about buses, routes, or trips. (Set GEMINI_API_KEY to unlock advanced conversational RAG capabilities)."
+            response_text = gemini_reply.strip()
+    else:
+        response_text = f"🚌 **TNSTC Live Assistant**\n\nHere is current schedule information:\n{schedules_str}\n\n• **Women Free Travel**: Valid on all ordinary town services.\n• **Live Map**: Real-time Socket.IO GPS tracking available."
 
     return jsonify({
         "status": "success",
         "response": response_text,
         "suggested_actions": suggested_actions,
         "timestamp": pd.Timestamp.now().strftime("%I:%M %p"),
-        "ai_model": "Gemini-1.5 RAG Integration" if llm_model else "Live DB Fetcher (No LLM Key)"
+        "ai_model": "Gemini RAG (Python Service)"
     })
 
 if __name__ == "__main__":

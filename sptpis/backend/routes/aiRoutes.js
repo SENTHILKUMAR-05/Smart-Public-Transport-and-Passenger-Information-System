@@ -87,7 +87,7 @@ function findSchedules(sourceCity, destCity) {
 // Helper to call Python AI Microservice with fallback
 async function callPythonAi(endpoint, payload, fallbackData) {
     try {
-        const response = await axios.post(`${AI_SERVICE_URL}/${endpoint}`, payload, { timeout: 800 });
+        const response = await axios.post(`${AI_SERVICE_URL}/${endpoint}`, payload, { timeout: 4000 });
         return response.data;
     } catch (err) {
         console.warn(`[AI Service Fallback] Could not reach Python AI Microservice (${endpoint}). Using local analytical model.`);
@@ -162,158 +162,270 @@ router.post('/recommend-route', async (req, res) => {
     }
 });
 
+// Gemini API Configuration for RAG AI Assistant
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const CANDIDATE_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-lite-latest'];
+
+// Helper to call Google Gemini API with system instructions, multi-turn context, and candidate model fallback
+async function callGemini(systemPrompt, userQuery, history = []) {
+    if (!GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY is not configured');
+    }
+
+    const contents = [];
+    if (Array.isArray(history) && history.length > 0) {
+        // Keep last 6 conversational turns for multi-turn situational memory
+        const recentHistory = history.slice(-6);
+        for (const item of recentHistory) {
+            const role = item.sender === 'user' ? 'user' : 'model';
+            const text = (item.text || '').trim();
+            if (text && !text.includes('Hi! I am your TNSTC AI Assistant') && !text.includes('Vanakkam!')) {
+                contents.push({
+                    role,
+                    parts: [{ text }]
+                });
+            }
+        }
+    }
+
+    contents.push({
+        role: 'user',
+        parts: [{ text: userQuery }]
+    });
+
+    let lastErr = null;
+    for (const model of CANDIDATE_MODELS) {
+        try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+            const payload = {
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+                contents,
+                generationConfig: {
+                    temperature: 0.4,
+                    maxOutputTokens: 900
+                }
+            };
+
+            const response = await axios.post(url, payload, { timeout: 8000 });
+            const candidates = response.data?.candidates;
+            if (candidates && candidates.length > 0 && candidates[0].content?.parts?.[0]?.text) {
+                return { text: candidates[0].content.parts[0].text, modelUsed: model };
+            }
+        } catch (err) {
+            console.warn(`[AI Routes] Gemini ${model} failed (${err.response?.status || err.message}), trying next model...`);
+            lastErr = err;
+        }
+    }
+    throw lastErr || new Error('All Gemini models failed');
+}
+
 // Session memory store fallback
 const userSessionContext = {};
 
-// 4. Chatbot Support (Advanced AI Transport Conversational RAG)
+// 4. Chatbot Support (Advanced AI Transport Conversational RAG with Gemini)
 router.post('/chatbot', async (req, res) => {
     try {
         const payload = req.body;
         const message = (payload.message || '').trim();
         const msgLow = message.toLowerCase();
-        const userId = payload.user_id || 'default_user';
+        const userId = payload.user_id || 'passenger_user';
         const history = payload.history || [];
 
-        let responseText = '';
-        let actions = [];
-
-        // 1. Context Scanner: Extract cities from current message or previous conversation history
+        // 1. Context Scanner: Detect cities, bus numbers, routes
         let rawSrc = '';
         let rawDest = '';
 
-        // Match patterns like "erode to salem", "buses from sathy to erode", "salem to chennai"
-        let routeMatch = message.match(/(?:timing|schedules?|buses?|bus|time|when|departure)\s+(?:from|between|for)?\s*([a-zA-Z\s]+?)\s+(?:to|and|towards|bound for)\s+([a-zA-Z\s]+)/i)
-            || message.match(/(?:from|between)\s+([a-zA-Z\s]+?)\s+(?:to|and)\s+([a-zA-Z\s]+)/i)
-            || message.match(/([a-zA-Z\s]+)\s+to\s+([a-zA-Z\s]+)/i);
-
-        if (routeMatch) {
-            rawSrc = routeMatch[1].trim();
-            rawDest = routeMatch[2].trim();
-            userSessionContext[userId] = { source: rawSrc, dest: rawDest };
-        }
-
-        // If no route in current message, scan conversation history (backwards)
-        if ((!rawSrc || !rawDest) && Array.isArray(history) && history.length > 0) {
-            for (let i = history.length - 1; i >= 0; i--) {
-                const hText = (history[i].text || '').toLowerCase();
-                const hMatch = hText.match(/(?:from|between)\s+([a-zA-Z\s]+?)\s+(?:to|and)\s+([a-zA-Z\s]+)/i)
-                    || hText.match(/([a-zA-Z\s]+)\s+to\s+([a-zA-Z\s]+)/i);
-                if (hMatch) {
-                    rawSrc = hMatch[1].trim();
-                    rawDest = hMatch[2].trim();
-                    userSessionContext[userId] = { source: rawSrc, dest: rawDest };
-                    break;
-                }
+        const foundCities = [];
+        for (const [alias, canonical] of Object.entries(CITY_ALIASES)) {
+            if (msgLow.includes(alias) && !foundCities.includes(canonical)) {
+                foundCities.push(canonical);
             }
         }
 
-        // Fallback to session context store if still missing
-        if ((!rawSrc || !rawDest) && userSessionContext[userId]) {
+        if (foundCities.length >= 2) {
+            rawSrc = foundCities[0];
+            rawDest = foundCities[1];
+            userSessionContext[userId] = { source: rawSrc, dest: rawDest };
+        } else if (foundCities.length === 1) {
+            if (userSessionContext[userId]) {
+                if (msgLow.includes('to ') || msgLow.includes('towards') || msgLow.includes('reach')) {
+                    rawSrc = userSessionContext[userId].source || 'Sathy';
+                    rawDest = foundCities[0];
+                } else {
+                    rawSrc = foundCities[0];
+                    rawDest = userSessionContext[userId].dest || 'Erode';
+                }
+            } else {
+                rawSrc = foundCities[0];
+            }
+        } else if (userSessionContext[userId]) {
             rawSrc = userSessionContext[userId].source;
             rawDest = userSessionContext[userId].dest;
         }
 
-        // 2. Intent Detection Flags
-        const isFollowUp = msgLow.includes('another') || msgLow.includes('more') || msgLow.includes('other') || msgLow.includes('next') || msgLow.includes('option');
-        const isNight = msgLow.includes('night') || msgLow.includes('late') || msgLow.includes('evening');
-        const isReturn = msgLow.includes('return') || msgLow.includes('back') || msgLow.includes('opposite');
-        const isFare = msgLow.includes('fare') || msgLow.includes('cost') || msgLow.includes('price') || msgLow.includes('ticket') || msgLow.includes('pass') || msgLow.includes('rate');
-        const isSeat = msgLow.includes('seat') || msgLow.includes('available') || msgLow.includes('book') || msgLow.includes('reserve') || msgLow.includes('capacity');
-        const isTrack = msgLow.includes('where') || msgLow.includes('track') || msgLow.includes('location') || msgLow.includes('gps') || msgLow.includes('live') || msgLow.includes('map');
-        const isHelp = msgLow.includes('help') || msgLow.includes('emergency') || msgLow.includes('complaint') || msgLow.includes('sos');
-
-        // Handle Return Route Swap
-        if (isReturn && rawSrc && rawDest) {
-            const temp = rawSrc;
-            rawSrc = rawDest;
-            rawDest = temp;
-            userSessionContext[userId] = { source: rawSrc, dest: rawDest };
+        // 2. Query Live Database Context
+        let liveSchedulesContext = '';
+        try {
+            let sql = `SELECT bus_number, from_city, to_city, departure, arrival, duration, fare, service_type, status, depot_name 
+                       FROM BusSchedules `;
+            let params = [];
+            if (rawSrc && rawDest) {
+                sql += `WHERE (LOWER(from_city) LIKE ? AND LOWER(to_city) LIKE ?) OR (LOWER(from_city) LIKE ? AND LOWER(to_city) LIKE ?) LIMIT 8`;
+                params = [`%${rawSrc.toLowerCase()}%`, `%${rawDest.toLowerCase()}%`, `%${rawDest.toLowerCase()}%`, `%${rawSrc.toLowerCase()}%`];
+            } else if (rawSrc) {
+                sql += `WHERE LOWER(from_city) LIKE ? OR LOWER(to_city) LIKE ? LIMIT 8`;
+                params = [`%${rawSrc.toLowerCase()}%`, `%${rawSrc.toLowerCase()}%`];
+            } else {
+                sql += `ORDER BY schedule_id ASC LIMIT 6`;
+            }
+            const schedRows = await db.all(sql, params);
+            if (schedRows && schedRows.length > 0) {
+                liveSchedulesContext = schedRows.map(s => 
+                    `• Bus ${s.bus_number} (${s.service_type}): ${s.from_city} ➔ ${s.to_city} | Dep: ${s.departure}, Arr: ${s.arrival} (${s.duration}) | Fare: ${s.fare} | Status: ${s.status} [Depot: ${s.depot_name}]`
+                ).join('\n');
+            }
+        } catch (e) {
+            console.warn('[AI RAG] DB Schedule query error:', e.message);
         }
 
-        // 3. AI Intelligence Routing & RAG Data Formatting
-        if (rawSrc && rawDest && (routeMatch || isFollowUp || isNight || isReturn || msgLow.includes('bus') || msgLow.includes('timing') || msgLow.includes('schedule') || msgLow.includes('available'))) {
+        // If no matching schedules from SQL, check bus_schedules.json
+        if (!liveSchedulesContext && rawSrc && rawDest) {
             const { source, dest, schedules } = findSchedules(rawSrc, rawDest);
-
             if (schedules && schedules.length > 0) {
-                const sampleDuration = schedules[0].duration || '1h 30m';
-                const sampleFare = schedules[0].fare || '₹55';
+                liveSchedulesContext = schedules.slice(0, 6).map(s => 
+                    `• Bus ${s.bus} (${s.type || 'EXPRESS'}): ${source} ➔ ${dest} | Dep: ${s.departure}, Arr: ${s.arrival} (${s.duration}) | Fare: ${s.fare}`
+                ).join('\n');
+            }
+        }
 
-                if (isFollowUp || isNight) {
-                    // Filter evening & night schedules
-                    const pmSchedules = schedules.filter(s => s.departure.includes('PM'));
-                    const displayList = pmSchedules.length > 0 ? pmSchedules.slice(0, 5) : schedules.slice(4, 9);
+        // Live Fleet status from Buses
+        let liveFleetContext = '';
+        try {
+            const buses = await db.all(`
+                SELECT registration_number, depot_name, status, departure, arrival, fare, source, destination 
+                FROM Buses WHERE status IN ('Active', 'Delayed') LIMIT 6
+            `);
+            if (buses && buses.length > 0) {
+                liveFleetContext = buses.map(b => 
+                    `• ${b.registration_number} (${b.depot_name}): ${b.source || 'Depot'} ➔ ${b.destination || 'Station'} | Dep: ${b.departure || '06:00 AM'} | Status: ${b.status} | Fare: ₹${b.fare || 55}`
+                ).join('\n');
+            }
+        } catch (e) {}
 
-                    const lines = displayList.map(s => {
-                        const seatsLeft = Math.floor(Math.random() * 20) + 18;
-                        return `• **${s.bus}** (${s.type || 'EXPRESS'}) | Dep: **${s.departure}** ➔ **${s.arrival}** | 💺 **${seatsLeft} Seats**`;
-                    }).join('\n');
+        // Active Trips & Delays
+        let activeTripsContext = '';
+        try {
+            const trips = await db.all(`
+                SELECT trip_id, bus_id, scheduled_departure, status, delay_mins 
+                FROM Trips WHERE status != 'Completed' LIMIT 5
+            `);
+            if (trips && trips.length > 0) {
+                activeTripsContext = trips.map(t => 
+                    `• Trip #${t.trip_id} (Bus ${t.bus_id}): Departure ${t.scheduled_departure} | Status: ${t.status} | Delay: ${t.delay_mins}m`
+                ).join('\n');
+            }
+        } catch (e) {}
 
-                    responseText = `🚌 **Evening & Night Buses: ${source.toUpperCase()} ➔ ${dest.toUpperCase()}**
-⏱️ ~${sampleDuration} | Fare: **${sampleFare}** | Total: **${schedules.length} Buses**
+        // State Alerts
+        let alertsContext = '';
+        try {
+            const alerts = await db.all(`SELECT title, message, alert_type, priority FROM Alerts WHERE status = 'Active' LIMIT 3`);
+            if (alerts && alerts.length > 0) {
+                alertsContext = alerts.map(a => `• [${a.priority}] ${a.title}: ${a.message}`).join('\n');
+            }
+        } catch (e) {}
 
-${lines}`;
-                    actions = [`Book ${source} to ${dest}`, `Return ${dest} ➔ ${source}`, `Seats for ${source}`];
+        // 3. Compose Live System Prompt
+        const systemInstruction = `You are the official Tamil Nadu Smart Public Transport (TNSTC & SETC) AI Assistant.
+Your mission is to dynamically analyze the passenger's question, situation, urgency, and live system state to give smart, accurate, conversational, and highly actionable answers.
 
-                } else {
-                    // Full Overview Listing (All matching buses)
-                    const overviewList = schedules.slice(0, 5).map(s => {
-                        const seatsLeft = Math.floor(Math.random() * 25) + 15;
-                        return `• **${s.bus}** (${s.type || 'EXPRESS'}) | Dep: **${s.departure}** ➔ **${s.arrival}** | 💺 **${seatsLeft} Seats**`;
-                    }).join('\n');
+=== REAL-TIME LIVE DATABASE CONTEXT ===
+${liveSchedulesContext ? `CURRENT BUS TIMINGS & SCHEDULES:\n${liveSchedulesContext}` : 'Regular bus services run every 15-25 minutes between major district centers.'}
 
-                    responseText = `🚌 **Available Buses: ${source.toUpperCase()} ➔ ${dest.toUpperCase()}**
-⏱️ ~${sampleDuration} | Fare: **${sampleFare}** | Frequency: **Every 20 mins**
+${liveFleetContext ? `ACTIVE FLEET STATUS:\n${liveFleetContext}` : 'Fleet telemetry active and tracking online.'}
 
-${overviewList}`;
-                    actions = [`another buses ?`, `Book ${source} to ${dest}`, `Return ${dest} ➔ ${source}`];
+${activeTripsContext ? `ACTIVE TRIPS & DELAYS:\n${activeTripsContext}` : 'All services currently operating on-schedule.'}
+
+${alertsContext ? `STATE TRANSPORT BULLETINS:\n${alertsContext}` : 'Normal operating conditions across all divisions.'}
+
+=== TAMIL NADU TRANSPORT SYSTEM RULES & POLICIES ===
+• Vidiyal Payanam Scheme: 100% free travel for women (Zero-Fare pink/white tickets) on all ordinary town/city buses across Tamil Nadu. Mofussil, express, deluxe, and SETC services require standard ticket fares.
+• Student Concessions: Free travel with approved Smart Pass on designated routes.
+• Senior Citizen Benefits: 10% discount on SETC/express; free token quotas on town buses.
+• Differently-abled passengers: Free travel with escort concession.
+• Luggage Policy: Personal baggage up to 30 kg free; oversized packages incur a nominal depot luggage fee.
+• Grievance & SLA Escalation: Passengers can file complaints (cleanliness, rash driving, overcharging, breakdown) under the 'Complaints' tab with photo proof. Strictly enforced 3-tier SLA: Level 1 (Depot Admin 24h) ➔ Level 2 (Regional Admin 48h) ➔ Level 3 (State Transport Command arbitration & compensation).
+• Helpline & Emergency: TNSTC Toll-Free Control Room: 1800-425-5432; Driver SOS direct dispatch on active routes.
+• Live GPS Tracking: Passengers can view real-time moving bus locations and telemetry on the 'Live Map' tab.
+
+=== RESPONSE GUIDELINES ===
+1. Analyze the passenger's situation dynamically (route, time of day, elderly/women passengers, luggage, emergency, delays, booking, fares).
+2. Answer conversationally, politely, accurately, and concisely.
+3. Format with clean markdown: use bold text (**key details**), bullet points (•), and relevant transport emojis (🚌, 💺, ⏱️, 🎫, 📍).
+4. If asking about timings, seats, or fares, quote the exact live schedule details from the context above.
+5. If the passenger writes in Tanglish or casual language, understand and reply warmly.
+6. At the very end of your response, on a new line, always provide 2 to 4 suggested follow-up action buttons in this EXACT format:
+SUGGESTED_ACTIONS: ["Action 1", "Action 2", "Action 3"]`;
+
+        let responseText = '';
+        let aiModelTag = 'Gemini RAG';
+        let actions = [];
+
+        // 4. Try Gemini API for Dynamic Situational Reasoning
+        try {
+            const geminiResult = await callGemini(systemInstruction, message, history);
+            const geminiRaw = geminiResult.text;
+            aiModelTag = `Gemini (${geminiResult.modelUsed} RAG)`;
+            
+            // Extract SUGGESTED_ACTIONS if present
+            const actionMatch = geminiRaw.match(/SUGGESTED_ACTIONS:\s*(\[.*?\])/s);
+            if (actionMatch) {
+                try {
+                    actions = JSON.parse(actionMatch[1]);
+                    responseText = geminiRaw.replace(/SUGGESTED_ACTIONS:\s*\[.*?\]/s, '').trim();
+                } catch (pe) {
+                    responseText = geminiRaw.replace(/SUGGESTED_ACTIONS:.*/s, '').trim();
                 }
-
             } else {
-                responseText = `🚌 **TNSTC Buses: ${rawSrc} ➔ ${rawDest}**
-• **Frequency**: Departures every 25 mins (05:00 AM - 10:30 PM)
-• **Travel Time**: ~1 hr 45 min | **Fare**: ₹55`;
-                actions = [`Book ${rawSrc} to ${rawDest}`, "Check Live Seats"];
+                responseText = geminiRaw.trim();
             }
 
-        } else if (isFare) {
-            const fareSrc = rawSrc || 'Sathy';
-            const fareDest = rawDest || 'Erode';
-            responseText = `🎫 **Fare Structure (${fareSrc} ➔ ${fareDest})**:
-• **Ordinary Bus**: ₹10 - ₹45
-• **Express / Mofussil**: **₹55**
+            // Ensure actions exist
+            if (!actions || actions.length === 0) {
+                if (rawSrc && rawDest) {
+                    actions = [`Book ${rawSrc} to ${rawDest}`, `Live GPS Tracking`, `Fare Details`];
+                } else {
+                    actions = ["Check Bus Timings", "Live Map Tracking", "Seat Availability"];
+                }
+            }
+
+        } catch (aiErr) {
+            console.warn('[AI Routes] Gemini API error, using dynamic live DB fallback:', aiErr.message);
+
+            // Dynamic Live DB Fallback if offline
+            if (rawSrc && rawDest && liveSchedulesContext) {
+                responseText = `🚌 **Available Buses: ${rawSrc.toUpperCase()} ➔ ${rawDest.toUpperCase()}**\n\n${liveSchedulesContext}\n\n• **Women Free Travel**: Valid on ordinary town services (Vidiyal Payanam).\n• **Live Tracking**: Available on the Live Map tab.`;
+                actions = [`Book ${rawSrc} to ${rawDest}`, `Return ${rawDest} ➔ ${rawSrc}`, "Check Live GPS"];
+            } else if (msgLow.includes('fare') || msgLow.includes('ticket')) {
+                responseText = `🎫 **TNSTC Fare Structure**:
+• **Ordinary Town Bus**: ₹5 - ₹25 (100% Free for Women)
+• **Mofussil / Express**: **₹55**
 • **SETC Ultra Deluxe**: **₹140**
-• **Discounts**: Senior Citizens 10% off; Free pass for Women & Students.`;
-            actions = ["Book Ticket Now", `Buses for ${fareSrc} to ${fareDest}`];
-
-        } else if (isSeat) {
-            const sSrc = rawSrc || 'Sathy';
-            const sDest = rawDest || 'Erode';
-            const randSeats = Math.floor(Math.random() * 25) + 15;
-            responseText = `💺 **Seat Occupancy (${sSrc} ➔ ${sDest})**:
-• **Available Seats**: **${randSeats} Seats** out of 54
-• **Window Seats**: 8 Left | **Aisle Seats**: 12 Left`;
-            actions = [`Book ${sSrc} to ${sDest}`, "View 54-Seat Layout"];
-
-        } else if (isTrack) {
-            responseText = `📍 **Live GPS Tracking**:
-Real-time Socket.IO coordinates streaming. Open the **'Live Map'** tab to track moving bus locations across Tamil Nadu!`;
-            actions = ["View Live Map Overview", "Check Speed Telemetry"];
-
-        } else if (isHelp) {
-            responseText = `🚨 **TNSTC Helpline & SOS**:
-• **Toll-Free Control Room**: **1800-425-5432**
-• **Driver SOS**: Direct Highway Patrol Emergency Sync.`;
-            actions = ["Lodge Complaint", "Contact State Helpline"];
-
-        } else {
-            responseText = `🤖 **TNSTC AI Assistant**:
-Ask me about bus timings, seat availability, ticket fares, or live GPS tracking!
-
-Examples:
-• *"Buses from Erode to Salem"*
-• *"another buses ?"*
-• *"Fare for Sathy to Erode"*`;
-            actions = ["Erode to Salem Buses", "Sathy to Erode Timings", "Check Seat Availability"];
+• **Student / Senior Pass**: Applicable as per State policy.`;
+                actions = ["Book Ticket Now", "Check Live Timings"];
+            } else if (msgLow.includes('seat')) {
+                responseText = `💺 **Live Seat Availability**:
+• **Standard Layout**: 54 Seats per bus
+• **Available Seats**: Average 15 to 25 seats open across next departures
+• **Window Seats**: Available for online reservation.`;
+                actions = ["Reserve Seat", "View Bus Layout"];
+            } else {
+                responseText = `🤖 **TNSTC AI Assistant**:
+I am connected to the live Tamil Nadu transport database. Ask me any question about bus timings, fares, live GPS tracking, women's free travel, or complaints!`;
+                actions = ["Sathy to Erode Buses", "Erode to Salem Timings", "Live GPS Tracking"];
+            }
         }
 
         const responseObj = {
@@ -321,18 +433,16 @@ Examples:
             response: responseText,
             suggested_actions: actions,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            ai_model: 'TNSTC AI RAG Conversational Engine v6.0'
+            ai_model: aiModelTag
         };
 
-        // Log to Chatbot_History table
+        // Audit Log
         try {
             await db.run(
                 `INSERT INTO Chatbot_History (user_id, user_query, ai_response, suggested_actions) VALUES (?, ?, ?, ?)`,
                 [userId, message, responseText, JSON.stringify(actions)]
             );
-        } catch (e) {
-            // Non-critical audit log catch
-        }
+        } catch (e) {}
 
         res.json(responseObj);
     } catch (err) {
@@ -341,4 +451,3 @@ Examples:
 });
 
 module.exports = router;
-
