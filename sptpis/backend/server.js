@@ -5,7 +5,6 @@ const cors = require('cors');
 const morgan = require('morgan');
 const { Server } = require('socket.io');
 const path = require('path');
-const fs = require('fs');
 
 const db = require('./config/database');
 const connectMongoDB = require('./config/mongodb');
@@ -83,18 +82,6 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date().toISOString()
     });
 });
-
-// Serve frontend static build in production / single-service deployment if present
-const frontendDistPath = path.join(__dirname, '../frontend/dist');
-if (fs.existsSync(frontendDistPath)) {
-    app.use(express.static(frontendDistPath));
-    app.get('*', (req, res, next) => {
-        if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
-            return next();
-        }
-        res.sendFile(path.join(frontendDistPath, 'index.html'));
-    });
-}
 
 // Socket.IO Listeners
 io.on('connection', (socket) => {
