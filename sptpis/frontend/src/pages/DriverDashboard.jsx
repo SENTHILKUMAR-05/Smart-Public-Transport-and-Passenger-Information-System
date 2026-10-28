@@ -413,6 +413,40 @@ const DriverDashboard = () => {
       }
     } catch (e) { }
 
+    // 1b. Check backend database for persisted passenger bookings
+    try {
+      const dbRes = await axios.get('http://localhost:5000/api/passenger/bookings');
+      const dbBookings = dbRes.data?.bookings || [];
+      const dbMatch = dbBookings.find(b => {
+        const t = typeof b.ticket_json === 'string' ? JSON.parse(b.ticket_json) : b.ticket_json;
+        return (
+          b.otp === code ||
+          b.pnr === code ||
+          (t && (t.otp === code || t.pnr === code || (t.qrToken && t.qrToken.includes(code))))
+        );
+      });
+
+      if (dbMatch) {
+        const t = typeof dbMatch.ticket_json === 'string' ? JSON.parse(dbMatch.ticket_json) : dbMatch.ticket_json;
+        setScannedResult({
+          valid: true,
+          pnr: dbMatch.pnr || t?.pnr,
+          otp: dbMatch.otp || t?.otp,
+          passenger_name: dbMatch.passenger_name || 'Confirmed Passenger',
+          category: 'TNSTC E-Ticket',
+          seats: dbMatch.seat_number || t?.seats || t?.seat_number,
+          from: dbMatch.from_city || t?.boarding_stop || 'Erode Main Terminus',
+          to: dbMatch.to_city || t?.destination_stop || 'Salem New Stand',
+          bus: dbMatch.bus_number || t?.registration_number || 'TN-33-N-1122'
+        });
+        if (passengerCount < busCapacity) {
+          setPassengerCount(prev => prev + 1);
+        }
+        setQrScanning(false);
+        return;
+      }
+    } catch (e) { }
+
     // 2. Demo fallback codes
     if (code === '789012' || code === '894210' || code === 'PASS-TN33-SENIOR' || code === 'TICKET-ERODE-99') {
       setScannedResult({

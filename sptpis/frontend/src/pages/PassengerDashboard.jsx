@@ -258,6 +258,55 @@ const PassengerDashboard = () => {
     } catch (e) { }
   }, [bookedLegs]);
 
+  // Load persisted bookings from backend database & sync local bookings across devices
+  useEffect(() => {
+    let isMounted = true;
+    const syncBookingsWithBackend = async () => {
+      try {
+        const res = await axios.get('http://localhost:5000/api/passenger/bookings');
+        const dbBookings = res.data?.bookings || [];
+        const dbKeys = new Set();
+
+        if (isMounted && dbBookings.length > 0) {
+          setBookedLegs(prev => {
+            const merged = { ...prev };
+            dbBookings.forEach(b => {
+              try {
+                const ticket = typeof b.ticket_json === 'string' ? JSON.parse(b.ticket_json) : b.ticket_json;
+                const key = b.booking_key || `${ticket.date || b.travel_date}-${ticket.leg?.bus || b.bus_number}-${ticket.leg?.departure || b.departure_time}`;
+                dbKeys.add(key);
+                if (!merged[key]) {
+                  merged[key] = ticket;
+                }
+              } catch (e) {}
+            });
+            return merged;
+          });
+        }
+
+        // Auto-sync any existing localStorage bookings up to SQLite if not already stored
+        const localSaved = localStorage.getItem('sptpis_valid_tickets_obj');
+        if (localSaved) {
+          try {
+            const localObj = JSON.parse(localSaved);
+            for (const [key, ticket] of Object.entries(localObj)) {
+              if (!dbKeys.has(key)) {
+                axios.post('http://localhost:5000/api/passenger/bookings', {
+                  booking_key: key,
+                  ticket
+                }).catch(() => {});
+              }
+            }
+          } catch (e) {}
+        }
+      } catch (err) {
+        console.warn("[Passenger] Backend bookings sync error, relying on local storage:", err.message);
+      }
+    };
+    syncBookingsWithBackend();
+    return () => { isMounted = false; };
+  }, []);
+
   // Complaint state
   const [complaintCategory, setComplaintCategory] = useState('');
   const [complaintText, setComplaintText] = useState('');
@@ -1588,6 +1637,15 @@ const PassengerDashboard = () => {
                       }));
                       setBookingSuccess(true);
                       setSelectedTicketModal(ticketObj);
+
+                      // Persist to SQLite backend for git sync and multi-client access
+                      const bookingKey = `${date}-${bookingContext.bus}-${bookingContext.departure}`;
+                      axios.post('http://localhost:5000/api/passenger/bookings', {
+                        booking_key: bookingKey,
+                        ticket: ticketObj
+                      }).catch(err => {
+                        console.warn("[Passenger] Failed to persist booking to database:", err.message);
+                      });
                     }}
                     className="w-full mt-6 bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-xl shadow-[0_10px_25px_-5px_rgba(37,99,235,0.4)] flex items-center justify-center gap-2 transition-all transform hover:-translate-y-1"
                   >

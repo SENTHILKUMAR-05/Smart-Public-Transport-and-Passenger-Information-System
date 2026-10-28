@@ -45,6 +45,105 @@ router.get('/schedules', async (req, res) => {
 
 
 
+// ============================================================
+// PASSENGER BOOKING PERSISTENCE (SQLite + Git Sync)
+// ============================================================
+
+// GET all passenger bookings
+router.get('/bookings', async (req, res) => {
+    try {
+        const bookings = await db.all(`
+            SELECT * FROM Passenger_Bookings
+            ORDER BY created_at DESC
+        `);
+        res.json({ success: true, bookings });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST create/persist passenger booking
+router.post('/bookings', async (req, res) => {
+    try {
+        const { booking_key, ticket } = req.body;
+        if (!ticket) {
+            return res.status(400).json({ error: 'Missing ticket payload' });
+        }
+
+        const pnr = ticket.pnr || ticket.booking_reference || `TNSTC-BK-${Math.floor(100000 + Math.random() * 900000)}`;
+        const otp = ticket.otp || `${Math.floor(100000 + Math.random() * 900000)}`;
+        const busNum = ticket.registration_number || ticket.leg?.bus || ticket.bus || 'TN-33-N-1122';
+        const fromCity = ticket.boarding_stop || ticket.leg?.from || 'Unknown';
+        const toCity = ticket.destination_stop || ticket.leg?.to || 'Unknown';
+        const depTime = ticket.leg?.departure || ticket.departure || '00:00';
+        const arrTime = ticket.leg?.arrival || ticket.arrival || '00:00';
+        const travelDate = ticket.travel_date || ticket.date || new Date().toISOString().split('T')[0];
+        const seatNum = ticket.seat_number || ticket.seats || 'S1';
+        const farePaid = parseFloat(ticket.fare_paid) || 150.0;
+        const key = booking_key || `${travelDate}-${busNum}-${depTime}`;
+
+        const fullTicket = {
+            ...ticket,
+            pnr,
+            otp,
+            booking_reference: pnr,
+            booking_status: 'Confirmed',
+            boarding_stop: fromCity,
+            destination_stop: toCity,
+            travel_date: travelDate,
+            seat_number: seatNum,
+            seats: seatNum,
+            registration_number: busNum,
+            fare_paid: farePaid,
+            date: travelDate
+        };
+
+        await db.run(`
+            INSERT OR REPLACE INTO Passenger_Bookings (
+                booking_key, pnr, otp, user_id, passenger_name,
+                bus_number, from_city, to_city, departure_time,
+                arrival_time, travel_date, seat_number, fare_paid,
+                status, ticket_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+            key, pnr, otp, 'Passenger1', 'S. KARTHIK',
+            busNum, fromCity, toCity, depTime,
+            arrTime, travelDate, seatNum, farePaid,
+            'Confirmed', JSON.stringify(fullTicket)
+        ]);
+
+        // Sync with main Bookings table for Admin Dashboard visibility
+        try {
+            const busRecord = await db.get(`SELECT bus_id, current_route_id FROM Buses WHERE registration_number = ? LIMIT 1`, [busNum]);
+            const busId = busRecord?.bus_id || 1;
+            const routeId = busRecord?.current_route_id || 1;
+            await db.run(`
+                INSERT OR IGNORE INTO Bookings (
+                    booking_reference, user_id, bus_id, route_id,
+                    seat_number, boarding_stop, destination_stop,
+                    travel_date, fare_paid, booking_status, qr_code_token
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                pnr, 1, busId, routeId,
+                seatNum, fromCity, toCity,
+                travelDate, farePaid, 'Confirmed', `QR-${pnr}`
+            ]);
+        } catch (adminErr) {
+            console.warn('[Passenger Routes] Admin Bookings sync warning:', adminErr.message);
+        }
+
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('new_booking_broadcast', fullTicket);
+            io.emit('sptpis_valid_tickets_updated', fullTicket);
+        }
+
+        res.json({ success: true, ticket: fullTicket, booking_key: key });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Mock passenger journey planning logic
 router.get('/journeys/plan', async (req, res) => {
     try {

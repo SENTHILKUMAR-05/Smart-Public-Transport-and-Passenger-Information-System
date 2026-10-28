@@ -318,6 +318,25 @@ let readyPromise = new Promise((resolve, reject) => {
             delay_mins INTEGER DEFAULT 0
         )`);
 
+        db.run(`CREATE TABLE IF NOT EXISTS Passenger_Bookings (
+            booking_key TEXT PRIMARY KEY,
+            pnr TEXT UNIQUE,
+            otp TEXT,
+            user_id TEXT DEFAULT 'Passenger1',
+            passenger_name TEXT DEFAULT 'S. KARTHIK',
+            bus_number TEXT,
+            from_city TEXT,
+            to_city TEXT,
+            departure_time TEXT,
+            arrival_time TEXT,
+            travel_date TEXT,
+            seat_number TEXT,
+            fare_paid REAL,
+            status TEXT DEFAULT 'Confirmed',
+            ticket_json TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
         db.run(`CREATE TABLE IF NOT EXISTS Maintenance (
             maintenance_id INTEGER PRIMARY KEY AUTOINCREMENT,
             bus_id INTEGER REFERENCES Buses(bus_id),
