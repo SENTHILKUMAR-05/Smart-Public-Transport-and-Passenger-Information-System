@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  # Main Full-Stack Application (Frontend UI + Backend API + Socket.IO Simulation)
+  sptpis-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sptpis_web
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - AI_SERVICE_URL=http://sptpis-ai:5001/api/ai
+    volumes:
+      # Persistent volume for SQLite database so data persists across restarts
+      - sptpis_db:/app/backend/database
+    depends_on:
+      - sptpis-ai
+    restart: unless-stopped
+
+  # Python AI Analytics Microservice (Crowd & Delay Models)
+  sptpis-ai:
+    build:
+      context: ./sptpis/ai_service
+      dockerfile: Dockerfile
+    container_name: sptpis_ai
+    ports:
+      - "5001:5001"
+    environment:
+      - PORT=5001
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    restart: unless-stopped
+
+volumes:
+  sptpis_db:
+    driver: local
