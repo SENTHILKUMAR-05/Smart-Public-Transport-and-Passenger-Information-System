@@ -268,7 +268,7 @@ const PassengerDashboard = () => {
     let isMounted = true;
     const syncBookingsWithBackend = async () => {
       try {
-        const res = await axios.get('http://localhost:5000/api/passenger/bookings');
+        const res = await axios.get('/api/passenger/bookings');
         const dbBookings = res.data?.bookings || [];
         const dbKeys = new Set();
 
@@ -296,7 +296,7 @@ const PassengerDashboard = () => {
             const localObj = JSON.parse(localSaved);
             for (const [key, ticket] of Object.entries(localObj)) {
               if (!dbKeys.has(key)) {
-                axios.post('http://localhost:5000/api/passenger/bookings', {
+                axios.post('/api/passenger/bookings', {
                   booking_key: key,
                   ticket
                 }).catch(() => {});
@@ -337,7 +337,7 @@ const PassengerDashboard = () => {
 
   const fetchLiveSchedules = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/passenger/all-schedules');
+      const res = await axios.get('/api/passenger/all-schedules');
       if (res.data && res.data.length > 0) {
         setAllSchedules(res.data);
         return res.data;
@@ -380,7 +380,7 @@ const PassengerDashboard = () => {
 
   const fetchComplaints = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/passenger/complaints?user_id=Passenger1');
+      const res = await axios.get('/api/passenger/complaints?user_id=Passenger1');
       // map backend names to frontend names
       const mapped = res.data.map(c => {
         const escLevel = c.escalation_level || 1;
@@ -509,7 +509,7 @@ const PassengerDashboard = () => {
         photoUrl: photoBase64 || null,
         user_id: 'Passenger1'
       };
-      await axios.post('http://localhost:5000/api/passenger/complaints', payload);
+      await axios.post('/api/passenger/complaints', payload);
       alert(`Complaint submitted for ${complaintCategory}! Connected dynamically to Depot Admin.`);
 
       await fetchComplaints();
@@ -1651,7 +1651,7 @@ const PassengerDashboard = () => {
 
                       // Persist to SQLite backend for git sync and multi-client access
                       const bookingKey = `${date}-${bookingContext.bus}-${bookingContext.departure}`;
-                      axios.post('http://localhost:5000/api/passenger/bookings', {
+                      axios.post('/api/passenger/bookings', {
                         booking_key: bookingKey,
                         ticket: ticketObj
                       }).catch(err => {

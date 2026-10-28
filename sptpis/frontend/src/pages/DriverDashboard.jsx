@@ -418,7 +418,7 @@ const DriverDashboard = () => {
 
     // 1b. Check backend database for persisted passenger bookings
     try {
-      const dbRes = await axios.get('http://localhost:5000/api/passenger/bookings');
+      const dbRes = await axios.get('/api/passenger/bookings');
       const dbBookings = dbRes.data?.bookings || [];
       const dbMatch = dbBookings.find(b => {
         const t = typeof b.ticket_json === 'string' ? JSON.parse(b.ticket_json) : b.ticket_json;
