@@ -19,6 +19,8 @@ import RegionalAdminDashboard from './pages/RegionalAdminDashboard';
 import DepotAdminDashboard from './pages/DepotAdminDashboard';
 import AiResearchLab from './pages/AiResearchLab';
 import Login from './pages/Login';
+import GlowCursor from './components/GlowCursor';
+import ClickSpark from './components/ClickSpark';
 import { useAuth } from './context/AuthContext';
 
 const AppContent = () => {
@@ -104,7 +106,28 @@ const App = () => {
     <AuthProvider>
       <SocketProvider>
         <NotificationProvider>
-          <AppContent />
+          <GlowCursor
+            color="#38bdf8"
+            secondaryColor="#a855f7"
+            intensity={1.25}
+            trailWidth={3}
+            linger={1.3}
+            glow={1.1}
+            clickBurst={true}
+            theme="dark"
+          >
+            <ClickSpark
+              sparkColor={['#ffffff', '#38bdf8', '#c084fc', '#818cf8']}
+              shape="line"
+              sparkCount={8}
+              sparkSize={14}
+              sparkRadius={30}
+              duration={500}
+              glow={0.6}
+            >
+              <AppContent />
+            </ClickSpark>
+          </GlowCursor>
         </NotificationProvider>
       </SocketProvider>
     </AuthProvider>

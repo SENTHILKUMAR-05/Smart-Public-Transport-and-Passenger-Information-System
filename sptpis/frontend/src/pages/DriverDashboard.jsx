@@ -2,17 +2,20 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
+import { Sidebar, SidebarBody, SidebarLink, SidebarLogoutButton, SidebarSection } from '../components/velora/animated-sidebar';
+import { HoverCardGrid } from '../components/velora/card-hover-effect';
+import { BorderDrawWrapper } from '../components/velora/border-draw-card';
 import {
   Bus, Navigation, MapPin, PlayCircle, ShieldAlert, CheckCircle,
   ArrowRight, AlertTriangle, Clock, Calendar, AlertOctagon, CheckSquare,
   Wrench, Smartphone, Users, QrCode, AlertCircle, UserCheck,
   HeartHandshake, Bell, Volume2, ShieldCheck, User, Gauge,
   FileText, Check, X, Plus, Minus, Camera, Zap, Award, Phone,
-  Activity, Flame, Wifi, Layers, Compass, Radio
+  Activity, Flame, Wifi, Layers, Compass, Radio, LogOut
 } from 'lucide-react';
 
 const DriverDashboard = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { socket } = useSocket();
 
   const [loading, setLoading] = useState(true);
@@ -679,148 +682,140 @@ const DriverDashboard = () => {
       {/* MAIN DESKTOP COCKPIT CONTAINER */}
       <div className="flex-1 flex overflow-hidden">
 
-        {/* LEFT NAVIGATION DESKTOP BAR */}
-        <aside className="w-64 bg-slate-900 border-r border-slate-800 p-4 flex flex-col justify-between hidden md:flex">
-          <div className="space-y-2">
-            <div className="text-[10px] font-mono text-slate-500 uppercase tracking-widest px-3 mb-2">Navigation Deck</div>
-
-            <button
-              onClick={() => setActiveTab('cockpit')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs transition ${activeTab === 'cockpit' ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+        {/* LEFT NAVIGATION DESKTOP BAR - ANIMATED VELORA SIDEBAR */}
+        <div className="hidden md:flex sticky top-0 h-full z-40">
+          <Sidebar className="h-full">
+            <SidebarBody
+              logo={
+                <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shadow-md shadow-brand-500/30">
+                  <Bus className="w-4 h-4 text-white" />
+                </div>
+              }
+              title="Driver Terminal"
+              subtitle="TNSTC Fleet Operations"
+              footer={<SidebarLogoutButton onClick={logout} />}
             >
-              <Gauge className="w-4 h-4" /> Live Navigation Cockpit
-            </button>
-
-            <button
-              onClick={() => setActiveTab('passenger')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs transition ${activeTab === 'passenger' ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-            >
-              <Users className="w-4 h-4" /> Passenger Hub & QR Scanner
-            </button>
-
-            <button
-              onClick={() => setActiveTab('checklist')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs transition ${activeTab === 'checklist' ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-            >
-              <CheckSquare className="w-4 h-4" /> Pre-Trip Safety Checklist
-            </button>
-
-            <button
-              onClick={() => setActiveTab('roster')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs transition ${activeTab === 'roster' ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-            >
-              <Calendar className="w-4 h-4" /> Duty Schedule & Roster
-            </button>
-
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs transition ${activeTab === 'history' ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-            >
-              <FileText className="w-4 h-4" /> Duty Logbook & History
-            </button>
-
-            <button
-              onClick={() => setActiveTab('maintenance')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs transition ${activeTab === 'maintenance' ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-            >
-              <Wrench className="w-4 h-4" /> Garage Maintenance Tickets
-            </button>
-          </div>
-
-          {/* Left Sidebar Driver Status Summary */}
-          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-xs space-y-2">
-            <div className="flex justify-between items-center text-slate-400">
-              <span>Shift Timing:</span>
-              <strong className="text-white">07:00 - 15:30</strong>
-            </div>
-            <div className="flex justify-between items-center text-slate-400">
-              <span>License Expiry:</span>
-              <strong className="text-slate-300">{profile.license_expiry}</strong>
-            </div>
-            <div className="flex justify-between items-center text-slate-400">
-              <span>Completed Trips:</span>
-              <strong className="text-emerald-400">{profile.trips_completed}</strong>
-            </div>
-          </div>
-        </aside>
+              <SidebarSection title="Navigation Deck">
+                <SidebarLink
+                  label="Live Navigation Cockpit"
+                  icon={<Gauge className="w-4 h-4" />}
+                  active={activeTab === 'cockpit'}
+                  onClick={() => setActiveTab('cockpit')}
+                />
+                <SidebarLink
+                  label="Passenger Hub & Scanner"
+                  icon={<Users className="w-4 h-4" />}
+                  active={activeTab === 'passenger'}
+                  onClick={() => setActiveTab('passenger')}
+                />
+                <SidebarLink
+                  label="Safety Checklist"
+                  icon={<CheckSquare className="w-4 h-4" />}
+                  active={activeTab === 'checklist'}
+                  onClick={() => setActiveTab('checklist')}
+                />
+                <SidebarLink
+                  label="Duty Roster & Schedule"
+                  icon={<Calendar className="w-4 h-4" />}
+                  active={activeTab === 'roster'}
+                  onClick={() => setActiveTab('roster')}
+                />
+                <SidebarLink
+                  label="Duty Logbook"
+                  icon={<FileText className="w-4 h-4" />}
+                  active={activeTab === 'history'}
+                  onClick={() => setActiveTab('history')}
+                />
+                <SidebarLink
+                  label="Garage Tickets"
+                  icon={<Wrench className="w-4 h-4" />}
+                  active={activeTab === 'maintenance'}
+                  onClick={() => setActiveTab('maintenance')}
+                />
+              </SidebarSection>
+            </SidebarBody>
+          </Sidebar>
+        </div>
 
         {/* RIGHT CONTENT DISPLAY AREA */}
         <main className="flex-1 overflow-y-auto p-6 bg-slate-950">
           {activeTab === 'cockpit' && (
             <div className="space-y-6">
 
-              {/* TOP HERO ROUTE METRICS BANNER */}
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-                <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-6">
+              {/* TOP HERO ROUTE METRICS BANNER WITH BORDER DRAW EFFECT */}
+              <BorderDrawWrapper radius={24} strokeColor="#10b981" className="rounded-3xl">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                  <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-6">
 
-                  {/* Route & Vehicle Title */}
-                  <div>
-                    <div className="flex items-center gap-3 mb-1">
-                      <span className="bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-mono font-bold text-xs px-3 py-1 rounded-full uppercase">
-                        {activeTrip.status} TRIP
-                      </span>
-                      <span className="text-slate-400 font-mono text-xs">TRIP ID: {activeTrip.trip_id}</span>
+                    {/* Route & Vehicle Title */}
+                    <div>
+                      <div className="flex items-center gap-3 mb-1">
+                        <span className="bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-mono font-bold text-xs px-3 py-1 rounded-full uppercase">
+                          {activeTrip.status} TRIP
+                        </span>
+                        <span className="text-slate-400 font-mono text-xs">TRIP ID: {activeTrip.trip_id}</span>
+                      </div>
+                      <h2 className="text-3xl font-black text-white flex items-center gap-3">
+                        {activeTrip.source_city} <ArrowRight className="w-6 h-6 text-brand-500" /> {activeTrip.destination_city}
+                      </h2>
+                      <p className="text-sm text-slate-400 mt-1 font-mono">
+                        Route #104 (Express Highway) • Bus: <span className="text-white font-bold">{activeTrip.registration_number}</span>
+                      </p>
                     </div>
-                    <h2 className="text-3xl font-black text-white flex items-center gap-3">
-                      {activeTrip.source_city} <ArrowRight className="w-6 h-6 text-brand-500" /> {activeTrip.destination_city}
-                    </h2>
-                    <p className="text-sm text-slate-400 mt-1 font-mono">
-                      Route #104 (Express Highway) • Bus: <span className="text-white font-bold">{activeTrip.registration_number}</span>
-                    </p>
+
+                    {/* Telemetry Quick Gauges Grid with Velora Hover Effect */}
+                    <HoverCardGrid className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono" layoutId="driverTelemetryGauges">
+                      <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-center">
+                        <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Live Speed</span>
+                        <span className="text-2xl font-black text-emerald-400">{liveGps.speed} <span className="text-xs font-normal">km/h</span></span>
+                      </div>
+
+                      <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-center">
+                        <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Distance</span>
+                        <span className="text-2xl font-black text-white">{distanceCovered} <span className="text-xs font-normal">km</span></span>
+                      </div>
+
+                      <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-center">
+                        <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Fuel Tank</span>
+                        <span className="text-2xl font-black text-indigo-400">{telemetry.fuel}%</span>
+                      </div>
+
+                      <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-center">
+                        <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Engine Temp</span>
+                        <span className="text-2xl font-black text-amber-400">{telemetry.engineTemp}°C</span>
+                      </div>
+                    </HoverCardGrid>
                   </div>
 
-                  {/* Telemetry Quick Gauges Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono">
-                    <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-center">
-                      <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Live Speed</span>
-                      <span className="text-2xl font-black text-emerald-400">{liveGps.speed} <span className="text-xs font-normal">km/h</span></span>
+                  {/* Live GPS Telemetry Strip */}
+                  <div className="mt-5 pt-4 border-t border-slate-800/80 flex flex-wrap justify-between items-center text-xs font-mono text-slate-400">
+                    <div className="flex items-center gap-3">
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></div>
+                      <span>Lat: <strong className="text-white">{liveGps.lat}</strong> | Lng: <strong className="text-white">{liveGps.lng}</strong></span>
+                      <span className="text-slate-600">|</span>
+                      <span>Accuracy: <strong className="text-slate-300">{liveGps.accuracy}</strong></span>
                     </div>
 
-                    <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-center">
-                      <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Distance</span>
-                      <span className="text-2xl font-black text-white">{distanceCovered} <span className="text-xs font-normal">km</span></span>
-                    </div>
-
-                    <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-center">
-                      <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Fuel Tank</span>
-                      <span className="text-2xl font-black text-indigo-400">{telemetry.fuel}%</span>
-                    </div>
-
-                    <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-center">
-                      <span className="text-[10px] text-slate-500 uppercase tracking-widest block">Engine Temp</span>
-                      <span className="text-2xl font-black text-amber-400">{telemetry.engineTemp}°C</span>
+                    <div className="flex items-center gap-3">
+                      {activeTrip.status === 'Scheduled' ? (
+                        <button
+                          onClick={handleStartTrip}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2.5 rounded-xl transition shadow-lg shadow-emerald-600/30 flex items-center gap-2"
+                        >
+                          <PlayCircle className="w-4 h-4" /> Start Active Trip
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleEndTrip}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-xl transition border border-slate-700"
+                        >
+                          End Trip
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
-
-                {/* Live GPS Telemetry Strip */}
-                <div className="mt-5 pt-4 border-t border-slate-800/80 flex flex-wrap justify-between items-center text-xs font-mono text-slate-400">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></div>
-                    <span>Lat: <strong className="text-white">{liveGps.lat}</strong> | Lng: <strong className="text-white">{liveGps.lng}</strong></span>
-                    <span className="text-slate-600">|</span>
-                    <span>Accuracy: <strong className="text-slate-300">{liveGps.accuracy}</strong></span>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    {activeTrip.status === 'Scheduled' ? (
-                      <button
-                        onClick={handleStartTrip}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2.5 rounded-xl transition shadow-lg shadow-emerald-600/30 flex items-center gap-2"
-                      >
-                        <PlayCircle className="w-4 h-4" /> Start Active Trip
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleEndTrip}
-                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-xl transition border border-slate-700"
-                      >
-                        End Trip
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
+              </BorderDrawWrapper>
 
               {/* 2-COLUMN DESKTOP GRID LAYOUT */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -828,154 +823,168 @@ const DriverDashboard = () => {
                 {/* LEFT MAIN DECK (8 COLS) */}
                 <div className="lg:col-span-7 space-y-6">
 
-                  {/* Passenger Occupancy & Ticket Scanner Launcher */}
-                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-                    <div className="flex justify-between items-center">
-                      <h3 className="font-extrabold text-white text-base flex items-center gap-2">
-                        <Users className="w-5 h-5 text-brand-400" /> Passenger Occupancy & Boarding
-                      </h3>
-                      <span className={`text-[10px] font-extrabold px-3 py-1 rounded-full border ${occupancyBadge.style}`}>
-                        {occupancyBadge.label}
-                      </span>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div>
-                      <div className="flex justify-between text-xs font-mono mb-2">
-                        <span className="text-slate-400">Onboard: <strong className="text-white">{passengerCount}</strong> / {busCapacity}</span>
-                        <span className="text-emerald-400 font-bold">{availableSeats} Seats Available</span>
+                  {/* Passenger Occupancy & Ticket Scanner Launcher with BorderDraw */}
+                  <BorderDrawWrapper radius={24} strokeColor="#6366f1" className="rounded-3xl">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-extrabold text-white text-base flex items-center gap-2">
+                          <Users className="w-5 h-5 text-brand-400" /> Passenger Occupancy & Boarding
+                        </h3>
+                        <span className={`text-[10px] font-extrabold px-3 py-1 rounded-full border ${occupancyBadge.style}`}>
+                          {occupancyBadge.label}
+                        </span>
                       </div>
-                      <div className="w-full h-3.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${occupancyRatio >= 0.95 ? 'bg-rose-500' : occupancyRatio >= 0.75 ? 'bg-amber-500' : 'bg-brand-500'}`}
-                          style={{ width: `${Math.min(100, (passengerCount / busCapacity) * 100)}%` }}
-                        ></div>
-                      </div>
-                    </div>
 
-                    {/* Passenger Manual Counter & QR Scanner Launcher */}
-                    <div className="grid grid-cols-2 gap-3 pt-2">
-                      <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
-                        <span className="text-xs font-bold text-slate-400 pl-2">Onboard</span>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => handlePassengerChange(-1)}
-                            className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center justify-center transition active:scale-95"
-                          >
-                            <Minus className="w-4 h-4" />
-                          </button>
-                          <span className="w-7 text-center font-bold font-mono text-white text-base">{passengerCount}</span>
-                          <button
-                            onClick={() => handlePassengerChange(1)}
-                            className="w-8 h-8 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-bold flex items-center justify-center transition active:scale-95 shadow-md shadow-brand-600/30"
-                          >
-                            <Plus className="w-4 h-4" />
-                          </button>
+                      {/* Progress Bar */}
+                      <div>
+                        <div className="flex justify-between text-xs font-mono mb-2">
+                          <span className="text-slate-400">Onboard: <strong className="text-white">{passengerCount}</strong> / {busCapacity}</span>
+                          <span className="text-emerald-400 font-bold">{availableSeats} Seats Available</span>
+                        </div>
+                        <div className="w-full h-3.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${occupancyRatio >= 0.95 ? 'bg-rose-500' : occupancyRatio >= 0.75 ? 'bg-amber-500' : 'bg-brand-500'}`}
+                            style={{ width: `${Math.min(100, (passengerCount / busCapacity) * 100)}%` }}
+                          ></div>
                         </div>
                       </div>
 
-                      <button
-                        onClick={() => { setShowQrModal(true); setScannedResult(null); }}
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs py-3 rounded-2xl border border-indigo-400/30 shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 transition"
-                      >
-                        <QrCode className="w-4 h-4" /> Verify QR / OTP
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Passenger Stop Request & Special Assistance Deck */}
-                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-extrabold text-white text-base flex items-center gap-2">
-                        <Bell className="w-5 h-5 text-amber-400 animate-bounce" /> Live Stop & Assistance Alerts
-                      </h3>
-                      <span className="text-xs text-amber-300 font-mono font-bold">Bhavani Junction (Next Stop)</span>
-                    </div>
-
-                    <div className="space-y-2">
-                      {stopRequests.map(req => (
-                        <div key={req.id} className="bg-slate-950 p-3.5 rounded-2xl border border-amber-500/30 flex justify-between items-center text-xs">
-                          <span className="text-slate-200 font-semibold">🔔 Stop requested at <strong className="text-white font-bold">{req.stop_name}</strong></span>
-                          <button
-                            onClick={() => setStopRequests(prev => prev.filter(r => r.id !== req.id))}
-                            className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-xl border border-emerald-500/40 transition"
-                          >
-                            Acknowledge
-                          </button>
-                        </div>
-                      ))}
-
-                      {specialAlerts.map(alert => (
-                        <div key={alert.id} className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex items-start gap-3">
-                          <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 font-bold text-xs">
-                            {alert.type === 'Wheelchair' ? '♿' : '👵'}
+                      {/* Passenger Manual Counter & QR Scanner Launcher */}
+                      <div className="grid grid-cols-2 gap-3 pt-2">
+                        <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+                          <span className="text-xs font-bold text-slate-400 pl-2">Onboard</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handlePassengerChange(-1)}
+                              className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center justify-center transition active:scale-95"
+                            >
+                              <Minus className="w-4 h-4" />
+                            </button>
+                            <span className="w-7 text-center font-bold font-mono text-white text-base">{passengerCount}</span>
+                            <button
+                              onClick={() => handlePassengerChange(1)}
+                              className="w-8 h-8 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-bold flex items-center justify-center transition active:scale-95 shadow-md shadow-brand-600/30"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
                           </div>
-                          <div className="flex-1">
-                            <div className="flex justify-between items-start">
-                              <h4 className="text-xs font-bold text-white">{alert.type} Assistance</h4>
-                              <span className="text-[10px] font-mono text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded">{alert.stop_name}</span>
+                        </div>
+
+                        <button
+                          onClick={() => { setShowQrModal(true); setScannedResult(null); }}
+                          className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs py-3 rounded-2xl border border-indigo-400/30 shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 transition"
+                        >
+                          <QrCode className="w-4 h-4" /> Verify QR / OTP
+                        </button>
+                      </div>
+                    </div>
+                  </BorderDrawWrapper>
+
+                  {/* Passenger Stop Request & Special Assistance Deck with BorderDraw */}
+                  <BorderDrawWrapper radius={24} strokeColor="#f59e0b" className="rounded-3xl">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-extrabold text-white text-base flex items-center gap-2">
+                          <Bell className="w-5 h-5 text-amber-400 animate-bounce" /> Live Stop & Assistance Alerts
+                        </h3>
+                        <span className="text-xs text-amber-300 font-mono font-bold">Bhavani Junction (Next Stop)</span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {stopRequests.map(req => (
+                          <div key={req.id} className="bg-slate-950 p-3.5 rounded-2xl border border-amber-500/30 flex justify-between items-center text-xs">
+                            <span className="text-slate-200 font-semibold">🔔 Stop requested at <strong className="text-white font-bold">{req.stop_name}</strong></span>
+                            <button
+                              onClick={() => setStopRequests(prev => prev.filter(r => r.id !== req.id))}
+                              className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-xl border border-emerald-500/40 transition"
+                            >
+                              Acknowledge
+                            </button>
+                          </div>
+                        ))}
+
+                        {specialAlerts.map(alert => (
+                          <div key={alert.id} className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex items-start gap-3">
+                            <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 font-bold text-xs">
+                              {alert.type === 'Wheelchair' ? '♿' : '👵'}
                             </div>
-                            <p className="text-xs text-slate-400 mt-0.5">{alert.note}</p>
+                            <div className="flex-1">
+                              <div className="flex justify-between items-start">
+                                <h4 className="text-xs font-bold text-white">{alert.type} Assistance</h4>
+                                <span className="text-[10px] font-mono text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded">{alert.stop_name}</span>
+                              </div>
+                              <p className="text-xs text-slate-400 mt-0.5">{alert.note}</p>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  </BorderDrawWrapper>
 
-                  {/* Operational Reporting Actions */}
+                  {/* Operational Reporting Actions with BorderDraw */}
                   <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => setReportingType('Delay')}
-                      className="bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/30 font-bold py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 transition shadow-lg"
-                    >
-                      <Clock className="w-4 h-4" /> Report Route Delay
-                    </button>
-                    <button
-                      onClick={() => setReportingType('Breakdown')}
-                      className="bg-slate-900 hover:bg-slate-800 text-orange-400 border border-orange-500/30 font-bold py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 transition shadow-lg"
-                    >
-                      <Wrench className="w-4 h-4" /> Log Vehicle Breakdown
-                    </button>
+                    <BorderDrawWrapper radius={16} strokeColor="#f59e0b" className="rounded-2xl h-full">
+                      <button
+                        onClick={() => setReportingType('Delay')}
+                        className="w-full h-full bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/30 font-bold py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 transition shadow-lg"
+                      >
+                        <Clock className="w-4 h-4" /> Report Route Delay
+                      </button>
+                    </BorderDrawWrapper>
+                    <BorderDrawWrapper radius={16} strokeColor="#f97316" className="rounded-2xl h-full">
+                      <button
+                        onClick={() => setReportingType('Breakdown')}
+                        className="w-full h-full bg-slate-900 hover:bg-slate-800 text-orange-400 border border-orange-500/30 font-bold py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 transition shadow-lg"
+                      >
+                        <Wrench className="w-4 h-4" /> Log Vehicle Breakdown
+                      </button>
+                    </BorderDrawWrapper>
                   </div>
                 </div>
 
-                {/* RIGHT ROUTE TIMELINE DECK (5 COLS) */}
-                <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col justify-between">
-                  <div>
-                    <h3 className="font-extrabold text-white text-base mb-4 flex items-center gap-2">
-                      <Navigation className="w-5 h-5 text-emerald-400" /> Route Stops Timeline
-                    </h3>
+                {/* RIGHT ROUTE TIMELINE DECK (5 COLS) with BorderDraw */}
+                <div className="lg:col-span-5 h-full">
+                  <BorderDrawWrapper radius={24} strokeColor="#10b981" className="rounded-3xl h-full">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col justify-between h-full">
+                      <div>
+                        <h3 className="font-extrabold text-white text-base mb-4 flex items-center gap-2">
+                          <Navigation className="w-5 h-5 text-emerald-400" /> Route Stops Timeline
+                        </h3>
 
-                    <div className="space-y-3.5 relative">
-                      <div className="absolute left-[15px] top-4 bottom-4 w-0.5 bg-slate-800"></div>
+                        <div className="space-y-3.5 relative">
+                          <div className="absolute left-[15px] top-4 bottom-4 w-0.5 bg-slate-800"></div>
 
-                      {tripStops.map((stop, idx) => (
-                        <div key={stop.stop_id} className="relative z-10 flex items-center justify-between bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${idx === 1 ? 'bg-brand-600 text-white border-brand-400 animate-pulse shadow-lg shadow-brand-600/50' : stop.arrived ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
-                              {idx + 1}
-                            </div>
-                            <div>
-                              <h4 className={`text-xs font-bold ${idx === 1 ? 'text-white' : 'text-slate-300'}`}>{stop.stop_name}</h4>
-                              <span className="text-[10px] text-slate-500 font-mono">ETA: {stop.eta || 'Passed'} • {stop.distance_from_prev}</span>
-                            </div>
-                          </div>
+                          {tripStops.map((stop, idx) => (
+                            <BorderDrawWrapper key={stop.stop_id} radius={16} strokeColor="#10b981" className="rounded-2xl">
+                              <div className="relative z-10 flex items-center justify-between bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${idx === 1 ? 'bg-brand-600 text-white border-brand-400 animate-pulse shadow-lg shadow-brand-600/50' : stop.arrived ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+                                    {idx + 1}
+                                  </div>
+                                  <div>
+                                    <h4 className={`text-xs font-bold ${idx === 1 ? 'text-white' : 'text-slate-300'}`}>{stop.stop_name}</h4>
+                                    <span className="text-[10px] text-slate-500 font-mono">ETA: {stop.eta || 'Passed'} • {stop.distance_from_prev}</span>
+                                  </div>
+                                </div>
 
-                          {idx === 1 && (
-                            <button
-                              onClick={() => {
-                                setTripStops(prev => prev.map((s, i) => i === 1 ? { ...s, arrived: true } : s));
-                                alert(`Arrival logged at ${stop.stop_name}! Systems updated.`);
-                              }}
-                              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-md transition"
-                            >
-                              Arrived
-                            </button>
-                          )}
+                                {idx === 1 && (
+                                  <button
+                                    onClick={() => {
+                                      setTripStops(prev => prev.map((s, i) => i === 1 ? { ...s, arrived: true } : s));
+                                      alert(`Arrival logged at ${stop.stop_name}! Systems updated.`);
+                                    }}
+                                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-md transition"
+                                  >
+                                    Arrived
+                                  </button>
+                                )}
+                              </div>
+                            </BorderDrawWrapper>
+                          ))}
                         </div>
-                      ))}
+                      </div>
                     </div>
-                  </div>
+                  </BorderDrawWrapper>
                 </div>
               </div>
             </div>
@@ -1144,23 +1153,25 @@ const DriverDashboard = () => {
 
               <div className="space-y-4">
                 {todayTrips.map(t => (
-                  <div key={t.trip_id} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex justify-between items-center">
-                    <div>
-                      <div className="flex items-center gap-3 mb-2">
-                        <span className="bg-emerald-500/20 text-emerald-400 font-mono font-bold text-xs px-3 py-1 rounded-full">{t.status}</span>
-                        <span className="text-slate-400 font-mono text-xs">{t.scheduled_departure}</span>
+                  <BorderDrawWrapper key={t.trip_id} radius={24} strokeColor="#3b82f6" className="rounded-3xl w-full">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex justify-between items-center w-full">
+                      <div>
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="bg-emerald-500/20 text-emerald-400 font-mono font-bold text-xs px-3 py-1 rounded-full">{t.status}</span>
+                          <span className="text-slate-400 font-mono text-xs">{t.scheduled_departure}</span>
+                        </div>
+                        <h3 className="text-xl font-extrabold text-white">{t.route_name}</h3>
+                        <p className="text-xs text-slate-400 font-mono mt-1">Bus Registration: <strong className="text-white">{t.registration_number}</strong></p>
                       </div>
-                      <h3 className="text-xl font-extrabold text-white">{t.route_name}</h3>
-                      <p className="text-xs text-slate-400 font-mono mt-1">Bus Registration: <strong className="text-white">{t.registration_number}</strong></p>
-                    </div>
 
-                    <button
-                      onClick={() => setActiveTab('cockpit')}
-                      className="bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs px-6 py-3 rounded-2xl shadow-lg transition"
-                    >
-                      Open Cockpit
-                    </button>
-                  </div>
+                      <button
+                        onClick={() => setActiveTab('cockpit')}
+                        className="bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs px-6 py-3 rounded-2xl shadow-lg transition"
+                      >
+                        Open Cockpit
+                      </button>
+                    </div>
+                  </BorderDrawWrapper>
                 ))}
               </div>
             </div>
@@ -1175,21 +1186,23 @@ const DriverDashboard = () => {
 
               <div className="space-y-3">
                 {tripHistory.map((item, i) => (
-                  <div key={i} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex justify-between items-center">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-bold">{item.status}</span>
-                        <span className="text-xs text-slate-400 font-mono">{item.date}</span>
+                  <BorderDrawWrapper key={i} radius={18} strokeColor="#6366f1" className="rounded-2xl w-full">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex justify-between items-center w-full">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-bold">{item.status}</span>
+                          <span className="text-xs text-slate-400 font-mono">{item.date}</span>
+                        </div>
+                        <h4 className="text-white font-extrabold text-base">{item.route_name}</h4>
+                        <p className="text-xs text-slate-400 font-mono mt-0.5">Bus: {item.bus} • Distance: {item.distance} • Duration: {item.duration}</p>
                       </div>
-                      <h4 className="text-white font-extrabold text-base">{item.route_name}</h4>
-                      <p className="text-xs text-slate-400 font-mono mt-0.5">Bus: {item.bus} • Distance: {item.distance} • Duration: {item.duration}</p>
-                    </div>
 
-                    <div className="text-right font-mono">
-                      <span className="text-xs text-slate-400 block">Total Passengers</span>
-                      <strong className="text-brand-400 text-base">{item.passengers} Onboard</strong>
+                      <div className="text-right font-mono">
+                        <span className="text-xs text-slate-400 block">Total Passengers</span>
+                        <strong className="text-brand-400 text-base">{item.passengers} Onboard</strong>
+                      </div>
                     </div>
-                  </div>
+                  </BorderDrawWrapper>
                 ))}
               </div>
             </div>
@@ -1236,71 +1249,79 @@ const DriverDashboard = () => {
                 </div>
               )}
 
-              {/* Maintenance Metrics Cards */}
+              {/* Maintenance Metrics Cards with BorderDraw */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <button
-                  onClick={() => setMaintenanceFilter('ALL')}
-                  className={`text-left bg-slate-900 border rounded-2xl p-4 shadow-lg transition ${maintenanceFilter === 'ALL' ? 'border-brand-500 ring-2 ring-brand-500/20' : 'border-slate-800 hover:border-slate-700'}`}
-                >
-                  <span className="text-[10px] font-bold uppercase text-slate-400">All Logged Tickets</span>
-                  <div className="text-2xl font-black text-white mt-1">{maintenanceTickets.length}</div>
-                </button>
-                <button
-                  onClick={() => setMaintenanceFilter('ACTIVE')}
-                  className={`text-left bg-slate-900 border rounded-2xl p-4 shadow-lg transition ${maintenanceFilter === 'ACTIVE' ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-amber-500/30 hover:border-amber-500/60'}`}
-                >
-                  <span className="text-[10px] font-bold uppercase text-slate-400">Active / In Progress</span>
-                  <div className="text-2xl font-black text-amber-400 mt-1">
-                    {maintenanceTickets.filter(t => t.status === 'Open' || t.status === 'In Progress' || t.status === 'Under Inspection' || t.status === 'Scheduled').length}
-                  </div>
-                </button>
-                <button
-                  onClick={() => setMaintenanceFilter('RESOLVED')}
-                  className={`text-left bg-slate-900 border rounded-2xl p-4 shadow-lg transition ${maintenanceFilter === 'RESOLVED' ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-emerald-500/30 hover:border-emerald-500/60'}`}
-                >
-                  <span className="text-[10px] font-bold uppercase text-slate-400">Resolved & Retained History</span>
-                  <div className="text-2xl font-black text-emerald-400 mt-1">
-                    {maintenanceTickets.filter(t => t.status === 'Resolved' || t.status === 'Completed').length}
-                  </div>
-                </button>
+                <BorderDrawWrapper radius={16} strokeColor="#6366f1" className="rounded-2xl h-full">
+                  <button
+                    onClick={() => setMaintenanceFilter('ALL')}
+                    className={`w-full h-full text-left bg-slate-900 border rounded-2xl p-4 shadow-lg transition ${maintenanceFilter === 'ALL' ? 'border-brand-500 ring-2 ring-brand-500/20' : 'border-slate-800 hover:border-slate-700'}`}
+                  >
+                    <span className="text-[10px] font-bold uppercase text-slate-400">All Logged Tickets</span>
+                    <div className="text-2xl font-black text-white mt-1">{maintenanceTickets.length}</div>
+                  </button>
+                </BorderDrawWrapper>
+                <BorderDrawWrapper radius={16} strokeColor="#f59e0b" className="rounded-2xl h-full">
+                  <button
+                    onClick={() => setMaintenanceFilter('ACTIVE')}
+                    className={`w-full h-full text-left bg-slate-900 border rounded-2xl p-4 shadow-lg transition ${maintenanceFilter === 'ACTIVE' ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-amber-500/30 hover:border-amber-500/60'}`}
+                  >
+                    <span className="text-[10px] font-bold uppercase text-slate-400">Active / In Progress</span>
+                    <div className="text-2xl font-black text-amber-400 mt-1">
+                      {maintenanceTickets.filter(t => t.status === 'Open' || t.status === 'In Progress' || t.status === 'Under Inspection' || t.status === 'Scheduled').length}
+                    </div>
+                  </button>
+                </BorderDrawWrapper>
+                <BorderDrawWrapper radius={16} strokeColor="#10b981" className="rounded-2xl h-full">
+                  <button
+                    onClick={() => setMaintenanceFilter('RESOLVED')}
+                    className={`w-full h-full text-left bg-slate-900 border rounded-2xl p-4 shadow-lg transition ${maintenanceFilter === 'RESOLVED' ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-emerald-500/30 hover:border-emerald-500/60'}`}
+                  >
+                    <span className="text-[10px] font-bold uppercase text-slate-400">Resolved & Retained History</span>
+                    <div className="text-2xl font-black text-emerald-400 mt-1">
+                      {maintenanceTickets.filter(t => t.status === 'Resolved' || t.status === 'Completed').length}
+                    </div>
+                  </button>
+                </BorderDrawWrapper>
               </div>
 
-              {/* Log New Mechanical Flaw Form */}
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-extrabold text-white text-base flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-400" /> Log Mechanical Defect to Depot Garage
-                  </h3>
-                  <span className="text-xs font-mono text-slate-400 bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
-                    Bus: <strong className="text-white">{activeTrip?.registration_number || 'TN-33-N-1122'}</strong>
-                  </span>
+              {/* Log New Mechanical Flaw Form with BorderDraw */}
+              <BorderDrawWrapper radius={24} strokeColor="#f59e0b" className="rounded-3xl w-full">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 w-full">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-extrabold text-white text-base flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-400" /> Log Mechanical Defect to Depot Garage
+                    </h3>
+                    <span className="text-xs font-mono text-slate-400 bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
+                      Bus: <strong className="text-white">{activeTrip?.registration_number || 'TN-33-N-1122'}</strong>
+                    </span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <input
+                      type="text"
+                      placeholder="Describe vehicle flaw (e.g. Brake chamber leakage, clutch slipping, wiper motor)..."
+                      value={newIssueDesc}
+                      onChange={(e) => setNewIssueDesc(e.target.value)}
+                      className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white text-xs font-mono focus:outline-none focus:border-brand-500"
+                    />
+                    <select
+                      value={newIssueSeverity}
+                      onChange={(e) => setNewIssueSeverity(e.target.value)}
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-3 text-white text-xs font-mono focus:outline-none focus:border-brand-500"
+                    >
+                      <option value="Critical">Critical</option>
+                      <option value="High">High</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Low">Low</option>
+                    </select>
+                    <button
+                      onClick={createMaintenanceTicket}
+                      className="bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs px-6 py-3 rounded-xl shadow-lg transition whitespace-nowrap cursor-pointer"
+                    >
+                      Submit Ticket
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <input
-                    type="text"
-                    placeholder="Describe vehicle flaw (e.g. Brake chamber leakage, clutch slipping, wiper motor)..."
-                    value={newIssueDesc}
-                    onChange={(e) => setNewIssueDesc(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white text-xs font-mono focus:outline-none focus:border-brand-500"
-                  />
-                  <select
-                    value={newIssueSeverity}
-                    onChange={(e) => setNewIssueSeverity(e.target.value)}
-                    className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-3 text-white text-xs font-mono focus:outline-none focus:border-brand-500"
-                  >
-                    <option value="Critical">Critical</option>
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
-                  </select>
-                  <button
-                    onClick={createMaintenanceTicket}
-                    className="bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs px-6 py-3 rounded-xl shadow-lg transition whitespace-nowrap"
-                  >
-                    Submit Ticket
-                  </button>
-                </div>
-              </div>
+              </BorderDrawWrapper>
 
               {/* Filter Tabs Bar */}
               <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
@@ -1337,79 +1358,85 @@ const DriverDashboard = () => {
                     const isInProgress = t.status === 'In Progress' || t.status === 'Under Inspection' || t.status === 'Scheduled';
 
                     return (
-                      <div
+                      <BorderDrawWrapper
                         key={t.id || t.ticket_id}
-                        className={`bg-slate-900 border rounded-2xl p-5 shadow-lg space-y-3 transition ${isResolved ? 'border-emerald-500/30 bg-gradient-to-r from-slate-900 to-emerald-950/20' : isInProgress ? 'border-blue-500/30' : 'border-amber-500/30'}`}
+                        radius={18}
+                        strokeColor={isResolved ? '#10b981' : isInProgress ? '#3b82f6' : '#f59e0b'}
+                        className="rounded-2xl w-full"
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                              {t.id || t.ticket_id}
-                            </span>
-                            <span className="font-mono bg-slate-950 px-2 py-0.5 rounded border border-slate-800 text-xs font-bold text-white">
-                              {t.bus || t.bus_number}
-                            </span>
-                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase ${t.severity === 'Critical' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : t.severity === 'High' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-300'}`}>
-                              {t.severity || 'High'}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            {isResolved ? (
-                              <span className="bg-emerald-500/20 text-emerald-400 font-mono font-bold text-xs px-3 py-1 rounded-full border border-emerald-500/30 flex items-center gap-1.5">
-                                <CheckCircle className="w-3.5 h-3.5" /> Resolved & Retained
+                        <div
+                          className={`bg-slate-900 border rounded-2xl p-5 shadow-lg space-y-3 transition w-full ${isResolved ? 'border-emerald-500/30 bg-gradient-to-r from-slate-900 to-emerald-950/20' : isInProgress ? 'border-blue-500/30' : 'border-amber-500/30'}`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                {t.id || t.ticket_id}
                               </span>
-                            ) : isInProgress ? (
-                              <span className="bg-blue-500/20 text-blue-400 font-mono font-bold text-xs px-3 py-1 rounded-full border border-blue-500/30 flex items-center gap-1.5">
-                                <Clock className="w-3.5 h-3.5" /> In Progress
+                              <span className="font-mono bg-slate-950 px-2 py-0.5 rounded border border-slate-800 text-xs font-bold text-white">
+                                {t.bus || t.bus_number}
                               </span>
-                            ) : (
-                              <span className="bg-amber-500/20 text-amber-400 font-mono font-bold text-xs px-3 py-1 rounded-full border border-amber-500/30 flex items-center gap-1.5">
-                                <AlertTriangle className="w-3.5 h-3.5" /> Open / Queued
+                              <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase ${t.severity === 'Critical' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : t.severity === 'High' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-300'}`}>
+                                {t.severity || 'High'}
                               </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Issue Description */}
-                        <div>
-                          <h4 className="text-white font-extrabold text-sm sm:text-base">{t.issue}</h4>
-                          <div className="flex items-center gap-4 text-[11px] text-slate-400 font-mono mt-1">
-                            <span>Logged: <strong className="text-slate-300">{t.date} {t.time}</strong></span>
-                            <span>Depot: <strong className="text-slate-300">{t.depot || 'Dharmapuri Depot'}</strong></span>
-                          </div>
-                        </div>
-
-                        {/* Mechanic Assignment & Resolution Box */}
-                        {isResolved ? (
-                          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex flex-col sm:flex-row justify-between sm:items-center gap-2 text-xs">
-                            <div className="flex items-center gap-2 text-emerald-300 font-semibold">
-                              <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                              <span>{t.resolution_notes || 'Defect rectified and certified by depot garage mechanical team. Bus cleared for operation.'}</span>
                             </div>
-                            {t.mechanic && (
-                              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded self-start sm:self-auto">
-                                Mechanic: <strong>{t.mechanic}</strong>
-                              </span>
-                            )}
-                          </div>
-                        ) : isInProgress ? (
-                          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 flex justify-between items-center text-xs">
-                            <div className="flex items-center gap-2 text-blue-300 font-medium">
-                              <Wrench className="w-4 h-4 text-blue-400 shrink-0" />
-                              <span>Depot mechanical bay active work order.</span>
+
+                            <div className="flex items-center gap-2">
+                              {isResolved ? (
+                                <span className="bg-emerald-500/20 text-emerald-400 font-mono font-bold text-xs px-3 py-1 rounded-full border border-emerald-500/30 flex items-center gap-1.5">
+                                  <CheckCircle className="w-3.5 h-3.5" /> Resolved & Retained
+                                </span>
+                              ) : isInProgress ? (
+                                <span className="bg-blue-500/20 text-blue-400 font-mono font-bold text-xs px-3 py-1 rounded-full border border-blue-500/30 flex items-center gap-1.5">
+                                  <Clock className="w-3.5 h-3.5" /> In Progress
+                                </span>
+                              ) : (
+                                <span className="bg-amber-500/20 text-amber-400 font-mono font-bold text-xs px-3 py-1 rounded-full border border-amber-500/30 flex items-center gap-1.5">
+                                  <AlertTriangle className="w-3.5 h-3.5" /> Open / Queued
+                                </span>
+                              )}
                             </div>
-                            <span className="text-[11px] font-mono text-blue-400 bg-blue-500/20 px-2 py-0.5 rounded">
-                              Assigned: <strong>{t.mechanic || 'Depot Mechanic'}</strong>
-                            </span>
                           </div>
-                        ) : (
-                          <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-[11px] font-mono text-slate-400 flex items-center gap-2">
-                            <Clock className="w-3.5 h-3.5 text-amber-400" />
-                            <span>Awaiting mechanic allocation by Dharmapuri Depot Admin.</span>
+
+                          {/* Issue Description */}
+                          <div>
+                            <h4 className="text-white font-extrabold text-sm sm:text-base">{t.issue}</h4>
+                            <div className="flex items-center gap-4 text-[11px] text-slate-400 font-mono mt-1">
+                              <span>Logged: <strong className="text-slate-300">{t.date} {t.time}</strong></span>
+                              <span>Depot: <strong className="text-slate-300">{t.depot || 'Dharmapuri Depot'}</strong></span>
+                            </div>
                           </div>
-                        )}
-                      </div>
+
+                          {/* Mechanic Assignment & Resolution Box */}
+                          {isResolved ? (
+                            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex flex-col sm:flex-row justify-between sm:items-center gap-2 text-xs">
+                              <div className="flex items-center gap-2 text-emerald-300 font-semibold">
+                                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <span>{t.resolution_notes || 'Defect rectified and certified by depot garage mechanical team. Bus cleared for operation.'}</span>
+                              </div>
+                              {t.mechanic && (
+                                <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded self-start sm:self-auto">
+                                  Mechanic: <strong>{t.mechanic}</strong>
+                                </span>
+                              )}
+                            </div>
+                          ) : isInProgress ? (
+                            <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 flex justify-between items-center text-xs">
+                              <div className="flex items-center gap-2 text-blue-300 font-medium">
+                                <Wrench className="w-4 h-4 text-blue-400 shrink-0" />
+                                <span>Depot mechanical bay active work order.</span>
+                              </div>
+                              <span className="text-[11px] font-mono text-blue-400 bg-blue-500/20 px-2 py-0.5 rounded">
+                                Assigned: <strong>{t.mechanic || 'Depot Mechanic'}</strong>
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-[11px] font-mono text-slate-400 flex items-center gap-2">
+                              <Clock className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Awaiting mechanic allocation by Dharmapuri Depot Admin.</span>
+                            </div>
+                          )}
+                        </div>
+                      </BorderDrawWrapper>
                     );
                   })}
 

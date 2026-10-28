@@ -87,20 +87,27 @@ const Navbar = ({ activeTab, setActiveTab, openNotifications }) => {
               </button>
 
               {roleDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-48 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl py-2 z-50">
+                <div className="absolute right-0 mt-2 w-52 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
                   <div className="px-3 py-1.5 text-xs font-semibold uppercase text-slate-400 border-b border-slate-800">
                     Logged in as
                   </div>
-                  <div className="px-3 py-2 text-sm text-slate-300 border-b border-slate-800">
+                  <div className="px-3 py-2 text-sm text-slate-200 font-bold truncate">
                     {user?.name}
                   </div>
-                  <button
-                    onClick={logout}
-                    className="w-full text-left px-4 py-2 mt-1 text-sm flex items-center gap-2 text-rose-400 hover:bg-slate-800 transition"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    <span>Secure Logout</span>
-                  </button>
+                  <div className="px-3 pb-2 text-[11px] text-brand-400 font-mono capitalize">
+                    {user?.role?.replace('_', ' ')}
+                  </div>
+                  <div className="border-t border-slate-800 mt-1 pt-1">
+                    <button
+                      onClick={() => {
+                        setRoleDropdownOpen(false);
+                        logout();
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-bold text-rose-400 hover:bg-rose-500/15 hover:text-rose-200 transition-colors cursor-pointer rounded-lg mx-1 w-[calc(100%-8px)]"
+                    >
+                      <LogOut className="w-4 h-4 text-rose-400" /> Sign Out
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

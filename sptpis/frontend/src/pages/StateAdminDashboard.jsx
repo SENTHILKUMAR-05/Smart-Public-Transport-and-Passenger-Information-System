@@ -3,11 +3,16 @@ import axios from 'axios';
 import {
     ShieldAlert, Bus, Users, Activity, BarChart3, Settings, AlertTriangle,
     MapPin, CheckCircle2, Navigation, Layers, PhoneCall, ListRestart, MonitorSpeaker,
-    PieChart, Zap, IndianRupee, HandCoins, Globe, TrendingUp, Radio, Megaphone, CloudRain, Trash2, Plus, X, Clock, Route, Check, Camera
+    PieChart, Zap, IndianRupee, HandCoins, Globe, TrendingUp, Radio, Megaphone, CloudRain, Trash2, Plus, X, Clock, Route, Check, Camera, LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FleetMap from '../components/Map/FleetMap';
 import { useSocket } from '../context/SocketContext';
+import { useAuth } from '../context/AuthContext';
+import { Sidebar, SidebarBody, SidebarLink, SidebarLogoutButton, SidebarSection } from '../components/velora/animated-sidebar';
+import { HoverCardGrid } from '../components/velora/card-hover-effect';
+import { BorderDrawWrapper } from '../components/velora/border-draw-card';
+import { GradientShiftCard } from '../components/velora/gradient-shift-card';
 
 // Standard reusable Sidebar Item
 const SidebarItem = ({ icon: Icon, label, active, onClick, hasSubItems }) => (
@@ -25,6 +30,7 @@ const SidebarItem = ({ icon: Icon, label, active, onClick, hasSubItems }) => (
 );
 
 const StateAdminDashboard = () => {
+    const { logout } = useAuth();
     const [activeMenu, setActiveMenu] = useState('overview');
     const [dashboardData, setDashboardData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -142,7 +148,7 @@ const StateAdminDashboard = () => {
                             </div>
                         </div>
 
-                        {/* Top Metrics Grid */}
+                        {/* Top Metrics Grid with Velora Hover Effect */}
                         <motion.div
                             initial="hidden"
                             animate="visible"
@@ -150,12 +156,13 @@ const StateAdminDashboard = () => {
                                 hidden: { opacity: 0 },
                                 visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
                             }}
-                            className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 xl:gap-6"
                         >
-                            <MetricCard title="Total Fleet Asset" value="23,450" trend="+12 Added" icon={Layers} color="border-indigo-500/40 text-indigo-400" />
-                            <MetricCard title="Gross Rev (Today)" value="₹1.42 Cr" trend="Up 4%" icon={IndianRupee} color="border-emerald-500/40 text-emerald-400" />
-                            <MetricCard title="Active Network" value={dashboardData?.active_trips || '3,012'} trend="High Yield" icon={Zap} color="border-amber-500/40 text-amber-400" />
-                            <MetricCard title="System Alerts" value={(dashboardData?.delayed || 0) + (dashboardData?.critical_incidents || 0)} trend="Needs Attn" icon={AlertTriangle} color="border-rose-500/40 text-rose-400" />
+                            <HoverCardGrid className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 xl:gap-6" layoutId="stateAdminMetrics">
+                                <MetricCard title="Total Fleet Asset" value="23,450" trend="+12 Added" icon={Layers} color="border-indigo-500/40 text-indigo-400" />
+                                <MetricCard title="Gross Rev (Today)" value="₹1.42 Cr" trend="Up 4%" icon={IndianRupee} color="border-emerald-500/40 text-emerald-400" />
+                                <MetricCard title="Active Network" value={dashboardData?.active_trips || '3,012'} trend="High Yield" icon={Zap} color="border-amber-500/40 text-amber-400" />
+                                <MetricCard title="System Alerts" value={(dashboardData?.delayed || 0) + (dashboardData?.critical_incidents || 0)} trend="Needs Attn" icon={AlertTriangle} color="border-rose-500/40 text-rose-400" />
+                            </HoverCardGrid>
                         </motion.div>
 
                         <motion.div
@@ -164,67 +171,73 @@ const StateAdminDashboard = () => {
                             transition={{ delay: 0.3, duration: 0.5 }}
                             className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6"
                         >
-                            {/* Real-time map takes up 2/3 of space in large screens */}
-                            <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-700/50 rounded-2xl p-6 shadow-2xl shadow-brand-900/20 flex flex-col min-h-[500px]">
-                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 relative z-10 gap-3">
-                                    <div>
-                                        <h3 className="text-lg font-black text-white">Live Operations Heatmap</h3>
-                                        <p className="text-xs text-slate-400 font-bold tracking-wider uppercase mt-1">SATELLITE TRACKING • {Object.values(liveBuses).length} ACTIVE NODES</p>
+                            {/* Real-time map takes up 2/3 of space in large screens with Border Draw Effect */}
+                            <BorderDrawWrapper radius={18} strokeColor="#6366f1" className="lg:col-span-2 rounded-2xl">
+                                <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-700/50 rounded-2xl p-6 shadow-2xl shadow-brand-900/20 flex flex-col min-h-[500px] h-full">
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 relative z-10 gap-3">
+                                        <div>
+                                            <h3 className="text-lg font-black text-white">Live Operations Heatmap</h3>
+                                            <p className="text-xs text-slate-400 font-bold tracking-wider uppercase mt-1">SATELLITE TRACKING • {Object.values(liveBuses).length} ACTIVE NODES</p>
+                                        </div>
+                                        <div className="bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 px-3 py-1.5 rounded-lg text-xs font-black tracking-widest flex items-center gap-2 shadow-[0_0_15px_rgba(99,102,241,0.2)]">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
+                                            TN JURISDICTION
+                                        </div>
                                     </div>
-                                    <div className="bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 px-3 py-1.5 rounded-lg text-xs font-black tracking-widest flex items-center gap-2 shadow-[0_0_15px_rgba(99,102,241,0.2)]">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
-                                        TN JURISDICTION
+                                    <div className="flex-1 bg-slate-950 rounded-xl overflow-hidden relative ring-1 ring-white/10 shadow-inner min-h-[380px]">
+                                        <FleetMap buses={Object.values(liveBuses)} />
                                     </div>
                                 </div>
-                                <div className="flex-1 bg-slate-950 rounded-xl overflow-hidden relative ring-1 ring-white/10 shadow-inner">
-                                    <FleetMap buses={Object.values(liveBuses)} />
-                                </div>
-                            </div>
+                            </BorderDrawWrapper>
 
                             {/* Side Analytics Panel */}
                             <div className="space-y-6">
-                                <div className="bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-700/60 rounded-[24px] p-6 shadow-2xl relative overflow-hidden group">
-                                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-900/0 to-transparent"></div>
-                                    <h3 className="font-black text-sm text-white uppercase tracking-widest mb-6 flex items-center justify-between relative z-10">
-                                        <span className="flex items-center gap-2"><Activity className="w-5 h-5 text-indigo-400 animate-pulse" /> State Pulse</span>
-                                        <span className="text-[9px] bg-slate-800 text-slate-400 px-2 py-1 rounded-md border border-slate-700">LIVE</span>
-                                    </h3>
-                                    <div className="space-y-6 relative z-10">
-                                        {[
-                                            { label: 'Passenger Turnout', val: dashboardData?.passengers_today?.toLocaleString() || '1,420,551', color: 'text-indigo-400', bar: '85%', bg: 'bg-indigo-500' },
-                                            { label: 'Expected Revenue', val: '₹1.42 Cr', color: 'text-emerald-400', bar: '92%', bg: 'bg-emerald-500' },
-                                            { label: 'Open Critical Esc.', val: dashboardData?.critical_incidents || '14', color: 'text-rose-400', bar: '15%', bg: 'bg-rose-500' }
-                                        ].map((item, idx) => (
-                                            <motion.div key={idx} initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.1 * idx, type: 'spring' }} className="group/item">
-                                                <div className="flex justify-between items-end mb-2">
-                                                    <span className="text-slate-400 font-bold text-xs uppercase tracking-wide group-hover/item:text-slate-300 transition-colors">{item.label}</span>
-                                                    <strong className={`text-lg font-black tracking-tight ${item.color}`}>{item.val}</strong>
-                                                </div>
-                                                <div className="w-full bg-slate-950/80 h-2.5 rounded-full overflow-hidden shadow-inner border border-slate-800/80 relative">
-                                                    <div className="absolute inset-0 bg-white/5 opacity-0 group-hover/item:opacity-100 transition-opacity"></div>
-                                                    <motion.div initial={{ width: 0 }} animate={{ width: item.bar }} transition={{ duration: 1.5, delay: 0.2, type: 'spring' }} className={`${item.bg} h-full rounded-full shadow-[0_0_12px_rgba(255,255,255,0.4)] relative overflow-hidden`}>
-                                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover/item:animate-[shimmer_1.5s_infinite]"></div>
-                                                    </motion.div>
-                                                </div>
-                                            </motion.div>
-                                        ))}
+                                <BorderDrawWrapper radius={24} strokeColor="#818cf8" className="rounded-[24px]">
+                                    <div className="bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-700/60 rounded-[24px] p-6 shadow-2xl relative overflow-hidden group">
+                                        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-900/0 to-transparent"></div>
+                                        <h3 className="font-black text-sm text-white uppercase tracking-widest mb-6 flex items-center justify-between relative z-10">
+                                            <span className="flex items-center gap-2"><Activity className="w-5 h-5 text-indigo-400 animate-pulse" /> State Pulse</span>
+                                            <span className="text-[9px] bg-slate-800 text-slate-400 px-2 py-1 rounded-md border border-slate-700">LIVE</span>
+                                        </h3>
+                                        <div className="space-y-6 relative z-10">
+                                            {[
+                                                { label: 'Passenger Turnout', val: dashboardData?.passengers_today?.toLocaleString() || '1,420,551', color: 'text-indigo-400', bar: '85%', bg: 'bg-indigo-500' },
+                                                { label: 'Expected Revenue', val: '₹1.42 Cr', color: 'text-emerald-400', bar: '92%', bg: 'bg-emerald-500' },
+                                                { label: 'Open Critical Esc.', val: dashboardData?.critical_incidents || '14', color: 'text-rose-400', bar: '15%', bg: 'bg-rose-500' }
+                                            ].map((item, idx) => (
+                                                <motion.div key={idx} initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.1 * idx, type: 'spring' }} className="group/item">
+                                                    <div className="flex justify-between items-end mb-2">
+                                                        <span className="text-slate-400 font-bold text-xs uppercase tracking-wide group-hover/item:text-slate-300 transition-colors">{item.label}</span>
+                                                        <strong className={`text-lg font-black tracking-tight ${item.color}`}>{item.val}</strong>
+                                                    </div>
+                                                    <div className="w-full bg-slate-950/80 h-2.5 rounded-full overflow-hidden shadow-inner border border-slate-800/80 relative">
+                                                        <div className="absolute inset-0 bg-white/5 opacity-0 group-hover/item:opacity-100 transition-opacity"></div>
+                                                        <motion.div initial={{ width: 0 }} animate={{ width: item.bar }} transition={{ duration: 1.5, delay: 0.2, type: 'spring' }} className={`${item.bg} h-full rounded-full shadow-[0_0_12px_rgba(255,255,255,0.4)] relative overflow-hidden`}>
+                                                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover/item:animate-[shimmer_1.5s_infinite]"></div>
+                                                        </motion.div>
+                                                    </div>
+                                                </motion.div>
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
+                                </BorderDrawWrapper>
 
-                                <div className="bg-gradient-to-br from-brand-900/40 to-slate-900 border border-brand-500/20 rounded-2xl p-6 shadow-xl relative overflow-hidden backdrop-blur-md">
-                                    <div className="absolute -right-6 -top-6 w-24 h-24 bg-brand-500/20 blur-2xl rounded-full"></div>
-                                    <h3 className="font-black text-sm text-white uppercase tracking-wider mb-4 flex items-center gap-2">
-                                        <Zap className="w-4 h-4 text-brand-400" /> Fast Execution
-                                    </h3>
-                                    <div className="space-y-3 relative z-10">
-                                        <button onClick={() => loadTabData('settings')} className="w-full px-4 py-3 bg-slate-800/80 hover:bg-brand-600/20 border border-slate-700/50 hover:border-brand-500/50 rounded-xl text-sm font-semibold text-slate-200 transition-all text-left flex justify-between items-center group shadow-md hover:shadow-brand-500/20">
-                                            Update State Policy <ShieldAlert className="w-4 h-4 text-slate-500 group-hover:text-brand-400 transition-colors" />
-                                        </button>
-                                        <button onClick={() => loadTabData('alerts')} className="w-full px-4 py-3 bg-slate-800/80 hover:bg-amber-600/20 border border-slate-700/50 hover:border-amber-500/50 rounded-xl text-sm font-semibold text-slate-200 transition-all text-left flex justify-between items-center group shadow-md hover:shadow-amber-500/20">
-                                            Issue Emergency Alert <AlertTriangle className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
-                                        </button>
+                                <BorderDrawWrapper radius={18} strokeColor="#38bdf8" className="rounded-2xl">
+                                    <div className="bg-gradient-to-br from-brand-900/40 to-slate-900 border border-brand-500/20 rounded-2xl p-6 shadow-xl relative overflow-hidden backdrop-blur-md">
+                                        <div className="absolute -right-6 -top-6 w-24 h-24 bg-brand-500/20 blur-2xl rounded-full"></div>
+                                        <h3 className="font-black text-sm text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+                                            <Zap className="w-4 h-4 text-brand-400" /> Fast Execution
+                                        </h3>
+                                        <div className="space-y-3 relative z-10">
+                                            <button onClick={() => loadTabData('settings')} className="w-full px-4 py-3 bg-slate-800/80 hover:bg-brand-600/20 border border-slate-700/50 hover:border-brand-500/50 rounded-xl text-sm font-semibold text-slate-200 transition-all text-left flex justify-between items-center group shadow-md hover:shadow-brand-500/20">
+                                                Update State Policy <ShieldAlert className="w-4 h-4 text-slate-500 group-hover:text-brand-400 transition-colors" />
+                                            </button>
+                                            <button onClick={() => loadTabData('alerts')} className="w-full px-4 py-3 bg-slate-800/80 hover:bg-amber-600/20 border border-slate-700/50 hover:border-amber-500/50 rounded-xl text-sm font-semibold text-slate-200 transition-all text-left flex justify-between items-center group shadow-md hover:shadow-amber-500/20">
+                                                Issue Emergency Alert <AlertTriangle className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
+                                </BorderDrawWrapper>
                             </div>
                         </motion.div>
                     </motion.div>
@@ -253,24 +266,26 @@ const StateAdminDashboard = () => {
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {corporations.map((c, i) => (
-                                <motion.div key={i} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.1, type: 'spring' }} whileHover={{ y: -5, boxShadow: '0 10px 40px -10px rgba(99,102,241, 0.2)' }} className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-700/80 hover:border-indigo-500/50 rounded-3xl p-6 relative flex flex-col group transition-all duration-300 shadow-xl overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-[40px] rounded-full pointer-events-none transition-opacity opacity-0 group-hover:opacity-100"></div>
-                                    <div className="flex justify-between items-start mb-4 relative z-10">
-                                        <div className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 px-3 py-1 rounded shadow-inner font-black uppercase tracking-widest text-lg">{c.code}</div>
-                                        <StatusBadge status={c.status} />
-                                    </div>
-                                    <h3 className="text-xl font-black text-white mb-2 relative z-10">{c.name}</h3>
-                                    <p className="text-slate-400 text-sm mb-6 flex-1 relative z-10 line-clamp-2">"{c.description || 'Primary transport division governing specified regions and operations within the state administrative body.'}"</p>
-                                    <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800/80 grid grid-cols-2 gap-4 relative z-10">
-                                        <div>
-                                            <div className="text-[10px] uppercase text-slate-500 font-bold mb-1">Corporate ID</div>
-                                            <div className="text-sm font-black text-white font-mono">#{c.corporation_id}</div>
+                                <BorderDrawWrapper key={i} radius={24} strokeColor="#6366f1" className="rounded-3xl h-full">
+                                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.1, type: 'spring' }} className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-700/80 rounded-3xl p-6 relative flex flex-col group transition-all duration-300 shadow-xl overflow-hidden h-full">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-[40px] rounded-full pointer-events-none transition-opacity opacity-0 group-hover:opacity-100"></div>
+                                        <div className="flex justify-between items-start mb-4 relative z-10">
+                                            <div className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 px-3 py-1 rounded shadow-inner font-black uppercase tracking-widest text-lg">{c.code}</div>
+                                            <StatusBadge status={c.status} />
                                         </div>
-                                        <div className="flex flex-col items-end">
-                                            <button onClick={() => setManagingCorp(c)} className="text-indigo-400 hover:text-indigo-300 text-sm font-bold flex items-center gap-1 group/btn"><Settings className="w-4 h-4 group-hover/btn:rotate-90 transition-transform duration-300" /> Manage</button>
+                                        <h3 className="text-xl font-black text-white mb-2 relative z-10">{c.name}</h3>
+                                        <p className="text-slate-400 text-sm mb-6 flex-1 relative z-10 line-clamp-2">"{c.description || 'Primary transport division governing specified regions and operations within the state administrative body.'}"</p>
+                                        <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800/80 grid grid-cols-2 gap-4 relative z-10 mt-auto">
+                                            <div>
+                                                <div className="text-[10px] uppercase text-slate-500 font-bold mb-1">Corporate ID</div>
+                                                <div className="text-sm font-black text-white font-mono">#{c.corporation_id}</div>
+                                            </div>
+                                            <div className="flex flex-col items-end">
+                                                <button onClick={() => setManagingCorp(c)} className="text-indigo-400 hover:text-indigo-300 text-sm font-bold flex items-center gap-1 group/btn"><Settings className="w-4 h-4 group-hover/btn:rotate-90 transition-transform duration-300" /> Manage</button>
+                                            </div>
                                         </div>
-                                    </div>
-                                </motion.div>
+                                    </motion.div>
+                                </BorderDrawWrapper>
                             ))}
                         </div>
                     </motion.div>
@@ -300,9 +315,9 @@ const StateAdminDashboard = () => {
                             </div>
                         </div>
 
-                        {/* Regional Data Visualizations */}
+                        {/* Regional Data Visualizations with Gradient Shift and Sheen Sweep */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-2">
-                            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden backdrop-blur-md">
+                            <GradientShiftCard colorTheme="emerald" radius={20} className="p-5 shadow-lg backdrop-blur-md">
                                 <h4 className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-3 flex justify-between items-center">
                                     38-District Live Operations Cloud
                                     <span className="flex h-2 w-2 relative">
@@ -341,8 +356,8 @@ const StateAdminDashboard = () => {
                                         )
                                     })}
                                 </div>
-                            </div>
-                            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden backdrop-blur-md">
+                            </GradientShiftCard>
+                            <GradientShiftCard colorTheme="purple" radius={20} className="p-5 shadow-lg backdrop-blur-md">
                                 <h4 className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-4">Regional Revenue Distribution</h4>
                                 <div className="flex gap-3 items-center mt-2">
                                     <div className="w-16 h-16 rounded-full border-4 border-slate-800 relative shadow-inner">
@@ -355,8 +370,8 @@ const StateAdminDashboard = () => {
                                         <div className="w-full h-1.5 bg-slate-800 rounded-full"><motion.div initial={{ width: 0 }} animate={{ width: '35%' }} transition={{ duration: 1, delay: 0.2 }} className="h-full bg-indigo-500 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.8)]"></motion.div></div>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden backdrop-blur-md">
+                            </GradientShiftCard>
+                            <GradientShiftCard colorTheme="emerald" radius={20} className="p-5 shadow-lg backdrop-blur-md">
                                 <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 blur-xl rounded-full"></div>
                                 <h4 className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-3">Overall Efficiency Index</h4>
                                 <div className="text-3xl font-black text-white mt-1 relative z-10">94.2%</div>
@@ -366,7 +381,7 @@ const StateAdminDashboard = () => {
                                 <div className="mt-4 relative z-10">
                                     <svg className="w-full h-8" viewBox="0 0 100 20" preserveAspectRatio="none"><motion.path initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.5 }} d="M0,20 Q10,5 20,15 T40,10 T60,18 T80,5 T100,10" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" className="drop-shadow-[0_0_5px_rgba(16,185,129,0.8)]" /></svg>
                                 </div>
-                            </div>
+                            </GradientShiftCard>
                         </div>
 
                         <DataTable
@@ -415,18 +430,19 @@ const StateAdminDashboard = () => {
 
                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                                 {districtStats.map(dist => (
-                                    <div
-                                        key={dist.name}
-                                        onClick={() => { setSelectedRegion(dist.name); setDistrictSearch(''); }}
-                                        className="bg-slate-900 border border-slate-800 rounded-xl p-5 cursor-pointer hover:border-brand-500 hover:bg-slate-800/80 transition-all group shadow-lg hover:shadow-brand-500/10 flex flex-col items-center text-center relative overflow-hidden"
-                                    >
-                                        <div className="absolute -right-4 -top-4 w-16 h-16 bg-brand-500/5 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
-                                        <MapPin className="w-8 h-8 text-slate-600 group-hover:text-brand-400 transition-colors mb-3" />
-                                        <h3 className="text-white font-bold text-base mb-1 group-hover:text-brand-300">{dist.displayName}</h3>
-                                        <span className="bg-slate-800 text-slate-300 text-xs px-3 py-1 rounded-full font-medium border border-slate-700 group-hover:border-brand-500/30 group-hover:text-brand-200">
-                                            {dist.talukCount} Taluks
-                                        </span>
-                                    </div>
+                                    <BorderDrawWrapper key={dist.name} radius={14} strokeColor="#0284c7" className="rounded-xl h-full">
+                                        <div
+                                            onClick={() => { setSelectedRegion(dist.name); setDistrictSearch(''); }}
+                                            className="bg-slate-900 border border-slate-800 rounded-xl p-5 cursor-pointer hover:border-brand-500 hover:bg-slate-800/80 transition-all group shadow-lg hover:shadow-brand-500/10 flex flex-col items-center text-center relative overflow-hidden h-full"
+                                        >
+                                            <div className="absolute -right-4 -top-4 w-16 h-16 bg-brand-500/5 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
+                                            <MapPin className="w-8 h-8 text-slate-600 group-hover:text-brand-400 transition-colors mb-3" />
+                                            <h3 className="text-white font-bold text-base mb-1 group-hover:text-brand-300">{dist.displayName}</h3>
+                                            <span className="bg-slate-800 text-slate-300 text-xs px-3 py-1 rounded-full font-medium border border-slate-700 group-hover:border-brand-500/30 group-hover:text-brand-200 mt-auto">
+                                                {dist.talukCount} Taluks
+                                            </span>
+                                        </div>
+                                    </BorderDrawWrapper>
                                 ))}
                                 {districtStats.length === 0 && (
                                     <div className="col-span-full py-12 text-center text-slate-500">
@@ -515,7 +531,8 @@ const StateAdminDashboard = () => {
                                         All route proposals have been processed.
                                     </motion.div>
                                 ) : activeProposals.map((p, i) => (
-                                    <motion.div layout key={p.proposal_id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9, filter: 'blur(10px)', transition: { duration: 0.3 } }} transition={{ delay: i * 0.1, type: 'spring', bounce: 0.3 }} whileHover={{ y: -4, boxShadow: '0 15px 40px -15px rgba(16,185,129, 0.15)' }} className="bg-gradient-to-br from-slate-900/90 to-slate-950 border border-slate-700/80 hover:border-emerald-500/50 rounded-3xl p-6 relative flex flex-col group transition-colors duration-300 shadow-xl overflow-hidden">
+                                    <BorderDrawWrapper key={p.proposal_id} radius={24} strokeColor="#10b981" className="rounded-3xl h-full">
+                                        <motion.div layout initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9, filter: 'blur(10px)', transition: { duration: 0.3 } }} transition={{ delay: i * 0.1, type: 'spring', bounce: 0.3 }} className="bg-gradient-to-br from-slate-900/90 to-slate-950 border border-slate-700/80 rounded-3xl p-6 relative flex flex-col group transition-colors duration-300 shadow-xl overflow-hidden h-full">
 
                                         <div className="flex justify-between items-start mb-6 relative z-10">
                                             <span className="bg-slate-800 text-slate-300 text-[10px] font-mono px-3 py-1.5 rounded-md shadow-inner border border-slate-600 font-bold tracking-widest">PROP-{p.proposal_id}</span>
@@ -568,6 +585,7 @@ const StateAdminDashboard = () => {
                                             </button>
                                         </div>
                                     </motion.div>
+                                    </BorderDrawWrapper>
                                 ))}
                             </AnimatePresence>
                         </div>
@@ -667,34 +685,36 @@ const StateAdminDashboard = () => {
                                         All field incidents have been resolved or assumed.
                                     </motion.div>
                                 ) : activeIncidents.map((inc, i) => (
-                                    <motion.div layout key={inc.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8, filter: 'blur(10px)', transition: { duration: 0.3 } }} transition={{ delay: i * 0.05, type: 'spring', bounce: 0.4 }} whileHover={{ y: -6, boxShadow: '0 10px 40px -10px rgba(99,102,241, 0.2)' }} className="bg-slate-900/80 border border-slate-700/80 hover:border-indigo-500/50 rounded-3xl p-6 relative flex flex-col group transition-all duration-500 ease-out shadow-lg">
-                                        {inc.severity === 'Critical' && <div className="absolute top-0 right-0 w-40 h-40 bg-rose-500/10 blur-[50px] rounded-full pointer-events-none transition-all group-hover:bg-rose-500/20"></div>}
-                                        {inc.severity === 'High' && <div className="absolute top-0 right-0 w-40 h-40 bg-orange-500/10 blur-[50px] rounded-full pointer-events-none transition-all group-hover:bg-orange-500/20"></div>}
-                                        {inc.severity === 'Medium' && <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/10 blur-[50px] rounded-full pointer-events-none transition-all group-hover:bg-amber-500/20"></div>}
+                                    <BorderDrawWrapper key={inc.id} radius={24} strokeColor="#6366f1" className="rounded-3xl h-full">
+                                        <motion.div layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8, filter: 'blur(10px)', transition: { duration: 0.3 } }} transition={{ delay: i * 0.05, type: 'spring', bounce: 0.4 }} className="bg-slate-900/80 border border-slate-700/80 rounded-3xl p-6 relative flex flex-col group transition-all duration-500 ease-out shadow-lg h-full">
+                                            {inc.severity === 'Critical' && <div className="absolute top-0 right-0 w-40 h-40 bg-rose-500/10 blur-[50px] rounded-full pointer-events-none transition-all group-hover:bg-rose-500/20"></div>}
+                                            {inc.severity === 'High' && <div className="absolute top-0 right-0 w-40 h-40 bg-orange-500/10 blur-[50px] rounded-full pointer-events-none transition-all group-hover:bg-orange-500/20"></div>}
+                                            {inc.severity === 'Medium' && <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/10 blur-[50px] rounded-full pointer-events-none transition-all group-hover:bg-amber-500/20"></div>}
 
-                                        <div className="flex justify-between items-start mb-5 relative z-10">
-                                            <span className="bg-slate-800 text-slate-300 text-[10px] font-mono px-3 py-1.5 rounded-md shadow-inner border border-slate-600 font-bold tracking-widest">{inc.id}</span>
-                                            <span className="text-[10px] font-black uppercase text-indigo-400 bg-indigo-500/10 px-3 py-1.5 rounded-md flex items-center gap-1.5 border border-indigo-500/20 shadow-inner"><Clock className="w-3 h-3" /> {inc.time}</span>
-                                        </div>
-
-                                        <h3 className="text-xl font-black text-white mb-3 relative z-10 tracking-wide">{inc.type}</h3>
-
-                                        <div className="bg-slate-950/70 rounded-2xl p-4 mb-5 border border-slate-800/80 relative z-10 shadow-inner mt-2 flex-grow">
-                                            <div className="text-[10px] uppercase text-slate-500 font-bold mb-1 flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-indigo-400" /> {inc.location}</div>
-                                            <div className="text-[11px] text-slate-500 font-mono mb-3 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded shadow-inner w-fit">{inc.coord}</div>
-                                            <p className="text-sm text-slate-300 leading-relaxed break-words font-medium">"{inc.description}"</p>
-                                        </div>
-
-                                        <div className="flex flex-col gap-3 relative z-10 mt-auto pt-1">
-                                            <div className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center shadow-inner">
-                                                <div className="text-[10px] uppercase text-slate-500 font-bold">Current Status</div>
-                                                <div className="text-xs font-black text-white uppercase tracking-wider">{inc.status}</div>
+                                            <div className="flex justify-between items-start mb-5 relative z-10">
+                                                <span className="bg-slate-800 text-slate-300 text-[10px] font-mono px-3 py-1.5 rounded-md shadow-inner border border-slate-600 font-bold tracking-widest">{inc.id}</span>
+                                                <span className="text-[10px] font-black uppercase text-indigo-400 bg-indigo-500/10 px-3 py-1.5 rounded-md flex items-center gap-1.5 border border-indigo-500/20 shadow-inner"><Clock className="w-3 h-3" /> {inc.time}</span>
                                             </div>
-                                            <button onClick={() => handleTakeControl(inc)} className="w-full bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white py-3 rounded-xl text-sm font-black transition-all border border-indigo-500/30 flex justify-center items-center gap-2 group/action hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]">
-                                                Take Control <Zap className="w-4 h-4 group-hover/action:text-amber-400 transition-colors" />
-                                            </button>
-                                        </div>
-                                    </motion.div>
+
+                                            <h3 className="text-xl font-black text-white mb-3 relative z-10 tracking-wide">{inc.type}</h3>
+
+                                            <div className="bg-slate-950/70 rounded-2xl p-4 mb-5 border border-slate-800/80 relative z-10 shadow-inner mt-2 flex-grow">
+                                                <div className="text-[10px] uppercase text-slate-500 font-bold mb-1 flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-indigo-400" /> {inc.location}</div>
+                                                <div className="text-[11px] text-slate-500 font-mono mb-3 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded shadow-inner w-fit">{inc.coord}</div>
+                                                <p className="text-sm text-slate-300 leading-relaxed break-words font-medium">"{inc.description}"</p>
+                                            </div>
+
+                                            <div className="flex flex-col gap-3 relative z-10 mt-auto pt-1">
+                                                <div className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center shadow-inner">
+                                                    <div className="text-[10px] uppercase text-slate-500 font-bold">Current Status</div>
+                                                    <div className="text-xs font-black text-white uppercase tracking-wider">{inc.status}</div>
+                                                </div>
+                                                <button onClick={() => handleTakeControl(inc)} className="w-full bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white py-3 rounded-xl text-sm font-black transition-all border border-indigo-500/30 flex justify-center items-center gap-2 group/action hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] hover:scale-[1.02] active:scale-[0.98]">
+                                                    Take Control <Zap className="w-4 h-4 group-hover/action:text-amber-400 transition-colors" />
+                                                </button>
+                                            </div>
+                                        </motion.div>
+                                    </BorderDrawWrapper>
                                 ))}
                             </AnimatePresence>
                         </div>
@@ -844,15 +864,14 @@ const StateAdminDashboard = () => {
                                         All state-level escalations have been resolved!
                                     </motion.div>
                                 ) : escalatedComplaints.map((comp) => (
-                                    <motion.div
-                                        key={comp.id}
-                                        initial={{ opacity: 0, y: 30, scale: 0.95 }}
-                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                        exit={{ opacity: 0, scale: 0.9, height: 0, marginBottom: 0, overflow: 'hidden' }}
-                                        transition={{ duration: 0.5, type: 'spring', bounce: 0.4 }}
-                                        whileHover={{ y: -6, boxShadow: '0 25px 50px -12px rgba(225,29,72, 0.15)' }}
-                                        className="bg-gradient-to-r from-slate-900 to-[#0f1118] border border-slate-700/60 rounded-3xl p-6 relative overflow-hidden flex flex-col xl:flex-row gap-8 hover:border-rose-500/50 transition-colors duration-500 group"
-                                    >
+                                    <BorderDrawWrapper key={comp.id} radius={24} strokeColor="#f43f5e" className="rounded-3xl w-full">
+                                        <motion.div
+                                            initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 0.9, height: 0, marginBottom: 0, overflow: 'hidden' }}
+                                            transition={{ duration: 0.5, type: 'spring', bounce: 0.4 }}
+                                            className="bg-gradient-to-r from-slate-900 to-[#0f1118] border border-slate-700/60 rounded-3xl p-6 relative overflow-hidden flex flex-col xl:flex-row gap-8 transition-colors duration-500 group w-full"
+                                        >
                                         {/* Left: Complaint Details */}
                                         <div className="flex-1 space-y-4 relative z-10">
                                             <div className="flex flex-col sm:flex-row justify-between sm:items-start gap-2">
@@ -1000,6 +1019,7 @@ const StateAdminDashboard = () => {
                                             <div className="absolute top-1/2 -right-10 -translate-y-1/2 w-72 h-72 bg-rose-500/10 rounded-full blur-[80px] pointer-events-none group-hover:bg-rose-500/20 transition-colors duration-700"></div>
                                         )}
                                     </motion.div>
+                                    </BorderDrawWrapper>
                                 ))}
                             </AnimatePresence>
                         </div>
@@ -1093,9 +1113,9 @@ const StateAdminDashboard = () => {
                         </div>
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* Bar Chart Panel */}
-                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-                                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl"></div>
+                            {/* Bar Chart Panel with Gradient Shift and Sheen Sweep */}
+                            <GradientShiftCard colorTheme="emerald" radius={20} className="p-6 shadow-xl">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none"></div>
                                 <h3 className="text-slate-300 font-bold mb-6 flex justify-between items-center relative z-10">
                                     {titleStr} Gross Revenue (Lakhs ₹)
                                     <TrendingUp className="text-emerald-400 w-5 h-5" />
@@ -1116,11 +1136,11 @@ const StateAdminDashboard = () => {
                                         </div>
                                     ))}
                                 </div>
-                            </div>
+                            </GradientShiftCard>
 
-                            {/* Donut Chart / Progress bars Panel */}
-                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-                                <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl"></div>
+                            {/* Donut Chart / Progress bars Panel with Gradient Shift and Sheen Sweep */}
+                            <GradientShiftCard colorTheme="purple" radius={20} className="p-6 shadow-xl">
+                                <div className="absolute top-0 left-0 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl pointer-events-none"></div>
                                 <h3 className="text-slate-300 font-bold mb-6 flex justify-between items-center relative z-10">
                                     Revenue Contribution by Zone
                                     <PieChart className="text-purple-400 w-5 h-5" />
@@ -1136,11 +1156,11 @@ const StateAdminDashboard = () => {
                                         </div>
                                     ))}
                                 </div>
-                            </div>
+                            </GradientShiftCard>
                         </div>
 
-                        {/* Activity Trend Panel */}
-                        <div className="bg-[#12141c]/50 border border-slate-800/80 rounded-2xl p-6 shadow-xl relative overflow-hidden mt-6 backdrop-blur-md">
+                        {/* Activity Trend Panel with Gradient Shift & Click Sheen */}
+                        <GradientShiftCard colorTheme="sky" radius={20} className="p-6 shadow-xl mt-6 backdrop-blur-md">
                             <h3 className="text-slate-200 font-bold mb-2 flex justify-center items-center relative z-10 text-lg tracking-wide">
                                 Activity Trend ({analyticsTimeframe})
                             </h3>
@@ -1218,7 +1238,7 @@ const StateAdminDashboard = () => {
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                        </GradientShiftCard>
                     </motion.div>
                 );
 
@@ -1307,34 +1327,93 @@ const StateAdminDashboard = () => {
     return (
         <div className="flex -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-64px)] bg-slate-950">
 
-            {/* Sidebar Navigation */}
-            <aside className="w-64 bg-slate-900 border-r border-slate-800 flex-shrink-0 flex flex-col pt-6 hidden md:flex">
-                <div className="px-6 mb-4">
-                    <div className="text-xs font-extrabold uppercase tracking-widest text-slate-500 mb-2">Main Menu</div>
-                    <SidebarItem icon={Activity} label="State Overview" active={activeMenu === 'overview'} onClick={() => loadTabData('overview')} />
-                </div>
+            {/* Animated Velora Sidebar Navigation */}
+            <div className="hidden md:flex sticky top-16 h-[calc(100vh-4.5rem)] max-h-[calc(100vh-4.5rem)] z-40 pb-2">
+                <Sidebar className="h-full">
+                    <SidebarBody
+                        logo={
+                            <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shadow-md shadow-brand-500/30">
+                                <Globe className="w-4 h-4 text-white" />
+                            </div>
+                        }
+                        title="State Command"
+                        subtitle="TNSTC Central Ministry"
+                        footer={<SidebarLogoutButton onClick={logout} />}
+                    >
+                        <SidebarSection title="Main Menu">
+                            <SidebarLink
+                                icon={<Activity className="w-4 h-4" />}
+                                label="State Overview"
+                                active={activeMenu === 'overview'}
+                                onClick={() => loadTabData('overview')}
+                            />
+                        </SidebarSection>
 
-                <div className="px-6 mb-4">
-                    <div className="text-xs font-extrabold uppercase tracking-widest text-slate-500 mb-2">Organization</div>
-                    <SidebarItem icon={Layers} label="Corporations" active={activeMenu === 'corporations'} onClick={() => loadTabData('corporations')} />
-                    <SidebarItem icon={MapPin} label="Regions" active={activeMenu === 'regions'} onClick={() => loadTabData('regions')} />
-                    <SidebarItem icon={Bus} label="Depots" active={activeMenu === 'depots'} onClick={() => loadTabData('depots')} />
-                </div>
+                        <SidebarSection title="Organization">
+                            <SidebarLink
+                                icon={<Layers className="w-4 h-4" />}
+                                label="Corporations"
+                                active={activeMenu === 'corporations'}
+                                onClick={() => loadTabData('corporations')}
+                            />
+                            <SidebarLink
+                                icon={<MapPin className="w-4 h-4" />}
+                                label="Regions"
+                                active={activeMenu === 'regions'}
+                                onClick={() => loadTabData('regions')}
+                            />
+                            <SidebarLink
+                                icon={<Bus className="w-4 h-4" />}
+                                label="Depots"
+                                active={activeMenu === 'depots'}
+                                onClick={() => loadTabData('depots')}
+                            />
+                        </SidebarSection>
 
-                <div className="px-6 mb-4">
-                    <div className="text-xs font-extrabold uppercase tracking-widest text-slate-500 mb-2">Governance & Ops</div>
-                    <SidebarItem icon={Navigation} label="Route Proposals" active={activeMenu === 'route_proposals'} onClick={() => loadTabData('route_proposals')} />
-                    <SidebarItem icon={MonitorSpeaker} label="Alerts & Emergencies" active={activeMenu === 'alerts'} onClick={() => loadTabData('alerts')} />
-                    <SidebarItem icon={AlertTriangle} label="Incident Monitoring" active={activeMenu === 'incidents'} onClick={() => loadTabData('incidents')} />
-                    <SidebarItem icon={PhoneCall} label="Complaints Viewer" active={activeMenu === 'complaints'} onClick={() => loadTabData('complaints')} />
-                </div>
+                        <SidebarSection title="Governance & Ops">
+                            <SidebarLink
+                                icon={<Navigation className="w-4 h-4" />}
+                                label="Route Proposals"
+                                active={activeMenu === 'route_proposals'}
+                                onClick={() => loadTabData('route_proposals')}
+                            />
+                            <SidebarLink
+                                icon={<MonitorSpeaker className="w-4 h-4" />}
+                                label="Alerts & Emergencies"
+                                active={activeMenu === 'alerts'}
+                                onClick={() => loadTabData('alerts')}
+                            />
+                            <SidebarLink
+                                icon={<AlertTriangle className="w-4 h-4" />}
+                                label="Incident Monitoring"
+                                active={activeMenu === 'incidents'}
+                                onClick={() => loadTabData('incidents')}
+                            />
+                            <SidebarLink
+                                icon={<PhoneCall className="w-4 h-4" />}
+                                label="Complaints Viewer"
+                                active={activeMenu === 'complaints'}
+                                onClick={() => loadTabData('complaints')}
+                            />
+                        </SidebarSection>
 
-                <div className="px-6 mb-4 mt-auto pb-4">
-                    <div className="text-xs font-extrabold uppercase tracking-widest text-slate-500 mb-2">System</div>
-                    <SidebarItem icon={BarChart3} label="Financial Analytics" active={activeMenu === 'analytics'} onClick={() => loadTabData('analytics')} />
-                    <SidebarItem icon={Settings} label="Global Settings" active={activeMenu === 'settings'} onClick={() => loadTabData('settings')} />
-                </div>
-            </aside>
+                        <SidebarSection title="System">
+                            <SidebarLink
+                                icon={<BarChart3 className="w-4 h-4" />}
+                                label="Financial Analytics"
+                                active={activeMenu === 'analytics'}
+                                onClick={() => loadTabData('analytics')}
+                            />
+                            <SidebarLink
+                                icon={<Settings className="w-4 h-4" />}
+                                label="Global Settings"
+                                active={activeMenu === 'settings'}
+                                onClick={() => loadTabData('settings')}
+                            />
+                        </SidebarSection>
+                    </SidebarBody>
+                </Sidebar>
+            </div>
 
             {/* Main Content Area */}
             <main className="flex-1 p-8 overflow-y-auto w-full relative">
@@ -1597,38 +1676,41 @@ const MetricCard = ({ title, value, trend, icon: Icon, color }) => {
     const rawColor = color.split(' ')[1].replace('text-', ''); // e.g., 'indigo-400'
     const bgColor = color.split(' ')[0].replace('border-', 'bg-');
 
-    return (
-        <motion.div
-            variants={{
-                hidden: { opacity: 0, y: 30, scale: 0.95 },
-                visible: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring', bounce: 0.4 } }
-            }}
-            whileHover={{ y: -8, scale: 1.02, boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)' }}
-            className={`bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 hover:${color.split(' ')[0]} rounded-3xl p-5 xl:p-6 shadow-2xl relative overflow-hidden group cursor-pointer backdrop-blur-xl transition-all duration-300 w-full`}
-        >
-            <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-[50px] opacity-10 group-hover:opacity-30 transition-opacity duration-500 bg-${rawColor.split('-')[0]}-500`}></div>
+    // Dynamic color theme for GradientShiftCard
+    let colorTheme = 'indigo';
+    if (rawColor.includes('emerald') || rawColor.includes('green')) colorTheme = 'emerald';
+    else if (rawColor.includes('amber') || rawColor.includes('yellow')) colorTheme = 'amber';
+    else if (rawColor.includes('rose') || rawColor.includes('red')) colorTheme = 'rose';
+    else if (rawColor.includes('sky') || rawColor.includes('blue')) colorTheme = 'sky';
+    else if (rawColor.includes('purple') || rawColor.includes('violet')) colorTheme = 'purple';
 
+    return (
+        <GradientShiftCard
+            colorTheme={colorTheme}
+            radius={24}
+            className="p-5 xl:p-6 w-full"
+        >
             <div className="flex justify-between items-start mb-6 relative z-10 gap-2">
-                <div className={`w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center border border-slate-800 group-hover:${bgColor} transition-colors duration-500 shadow-inner shrink-0`}>
+                <div className={`w-12 h-12 rounded-2xl bg-slate-900/90 flex items-center justify-center border border-slate-800 group-hover:${bgColor} transition-colors duration-500 shadow-inner shrink-0`}>
                     <Icon className={`w-5 h-5 ${color.split(' ')[1]}`} />
                 </div>
-                {trend && <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-inner border border-slate-800 bg-slate-950/50 ${color.split(' ')[1]} shrink-0 text-right leading-tight`}>{trend}</span>}
+                {trend && <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-inner border border-slate-800 bg-slate-950/70 ${color.split(' ')[1]} shrink-0 text-right leading-tight`}>{trend}</span>}
             </div>
 
             <div className="relative z-10 flex flex-col w-full">
-                <span className="text-[11px] font-black uppercase tracking-widest text-slate-500 mb-1">{title}</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-1">{title}</span>
                 <div className="flex items-end justify-between gap-3 w-full">
                     <span className="text-2xl lg:text-3xl xl:text-3xl 2xl:text-4xl font-black text-white tracking-tighter drop-shadow-md whitespace-nowrap">{value}</span>
 
                     {/* Animated Sparkline */}
-                    <div className="flex items-end gap-[3px] h-8 pb-1 opacity-50 group-hover:opacity-100 transition-opacity duration-300 shrink-0">
+                    <div className="flex items-end gap-[3px] h-8 pb-1 opacity-60 group-hover:opacity-100 transition-opacity duration-300 shrink-0">
                         {[4, 7, 3, 9, 5, 10, 6].map((h, i) => (
                             <motion.div key={i} initial={{ height: '30%' }} animate={{ height: `${h * 10}%` }} transition={{ repeat: Infinity, repeatType: 'reverse', duration: 0.8 + (i * 0.15) }} className={`w-1.5 rounded-t-full bg-${rawColor}`}></motion.div>
                         ))}
                     </div>
                 </div>
             </div>
-        </motion.div>
+        </GradientShiftCard>
     );
 };
 

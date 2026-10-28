@@ -5,11 +5,15 @@ import {
     Building, Bus, Users, Activity, BarChart3, AlertTriangle,
     MapPin, CheckCircle2, Navigation, MessageSquare, ListRestart,
     Clock, ShieldAlert, MonitorSpeaker, TrendingUp, TrendingDown,
-    Wrench, Star, ArrowRight, UserCog, UserCheck, Settings, X, Camera
+    Wrench, Star, ArrowRight, UserCog, UserCheck, Settings, X, Camera, LogOut
 } from 'lucide-react';
 import FleetMap from '../components/Map/FleetMap';
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
+import { Sidebar, SidebarBody, SidebarLink, SidebarLogoutButton, SidebarSection } from '../components/velora/animated-sidebar';
+import { HoverCardGrid } from '../components/velora/card-hover-effect';
+import { BorderDrawWrapper } from '../components/velora/border-draw-card';
+import { GradientShiftCard } from '../components/velora/gradient-shift-card';
 
 const SidebarItem = ({ icon: Icon, label, active, onClick, hasSubItems, badge }) => (
     <button
@@ -27,7 +31,7 @@ const SidebarItem = ({ icon: Icon, label, active, onClick, hasSubItems, badge })
 );
 
 const RegionalAdminDashboard = () => {
-    const { user } = useAuth();
+    const { user, logout } = useAuth();
     const [activeMenu, setActiveMenu] = useState('overview');
     const [dashboardData, setDashboardData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -343,25 +347,27 @@ const RegionalAdminDashboard = () => {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <HoverCardGrid className="grid grid-cols-2 lg:grid-cols-4 gap-4" layoutId="regionalMetrics">
                             <MetricCard title="Total Buses Monitored" value={dashboardData?.total_buses || 215} icon={Bus} color="border-slate-700 text-slate-300" />
                             <MetricCard title="Live Socket Connections" value={Object.keys(liveBuses).length || 42} trend="Active Now" icon={Activity} color="border-emerald-500/30 text-emerald-400" />
                             <MetricCard title="Passengers Today" value={`14,${Math.floor(Math.random() * 900) + 100}`} icon={Users} color="border-blue-500/30 text-blue-400" />
                             <MetricCard title="Critical Breakdowns" value={incidents.length || 2} trend="Requires Action" icon={Wrench} color="border-rose-500/30 text-rose-400" />
-                        </div>
+                        </HoverCardGrid>
 
-                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl h-[500px] flex flex-col relative overflow-hidden">
-                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-emerald-500 to-rose-500"></div>
-                            <div className="mb-4 flex justify-between items-center z-10">
-                                <div>
-                                    <h3 className="text-lg font-bold text-white flex items-center gap-2"><MapPin className="w-5 h-5 text-emerald-400" /> Regional Live Operations Map</h3>
-                                    <p className="text-xs text-slate-400">Live operational boundaries isolated securely for your region.</p>
+                        <BorderDrawWrapper radius={18} strokeColor="#3b82f6" className="rounded-2xl">
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl h-[500px] flex flex-col relative overflow-hidden">
+                                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-emerald-500 to-rose-500"></div>
+                                <div className="mb-4 flex justify-between items-center z-10">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-white flex items-center gap-2"><MapPin className="w-5 h-5 text-emerald-400" /> Regional Live Operations Map</h3>
+                                        <p className="text-xs text-slate-400">Live operational boundaries isolated securely for your region.</p>
+                                    </div>
+                                </div>
+                                <div className="flex-1 bg-slate-950 rounded-xl border border-slate-800 overflow-hidden relative shadow-inner">
+                                    <FleetMap buses={Object.values(liveBuses)} districtName={globalDistrict.name} />
                                 </div>
                             </div>
-                            <div className="flex-1 bg-slate-950 rounded-xl border border-slate-800 overflow-hidden relative shadow-inner">
-                                <FleetMap buses={Object.values(liveBuses)} districtName={globalDistrict.name} />
-                            </div>
-                        </div>
+                        </BorderDrawWrapper>
                     </div>
                 );
 
@@ -382,36 +388,38 @@ const RegionalAdminDashboard = () => {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                                 {availableDistricts.map(dist => (
-                                    <div key={dist.id} onClick={() => {
-                                        setSelectedDistrict(dist);
-                                        setDepots(enrichDepotsWithAiMetrics(getDepotsForDistrict(dist.code)));
-                                    }} className="bg-slate-900 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-6 shadow-xl cursor-pointer transition-all hover:bg-slate-800/80 group transform hover:-translate-y-1">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div>
-                                                <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition">{dist.name}</h3>
-                                                <span className="text-xs font-semibold bg-slate-800 px-2 py-1 rounded text-slate-300">{dist.code} Region</span>
+                                    <BorderDrawWrapper key={dist.id} radius={18} strokeColor="#3b82f6" className="rounded-2xl h-full">
+                                        <div onClick={() => {
+                                            setSelectedDistrict(dist);
+                                            setDepots(enrichDepotsWithAiMetrics(getDepotsForDistrict(dist.code)));
+                                        }} className="bg-slate-900 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-6 shadow-xl cursor-pointer transition-all hover:bg-slate-800/80 group transform hover:-translate-y-1 h-full flex flex-col justify-between">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div>
+                                                    <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition">{dist.name}</h3>
+                                                    <span className="text-xs font-semibold bg-slate-800 px-2 py-1 rounded text-slate-300">{dist.code} Region</span>
+                                                </div>
+                                                <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
+                                                    <MapPin className="w-5 h-5 text-blue-400" />
+                                                </div>
                                             </div>
-                                            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                                                <MapPin className="w-5 h-5 text-blue-400" />
-                                            </div>
-                                        </div>
 
-                                        <div className="grid grid-cols-2 gap-4 text-sm mt-6">
-                                            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/50">
-                                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Taluks</p>
-                                                <p className="text-lg font-black text-white flex items-center gap-1">{dist.talukCount}</p>
+                                            <div className="grid grid-cols-2 gap-4 text-sm mt-6">
+                                                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/50">
+                                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Taluks</p>
+                                                    <p className="text-lg font-black text-white flex items-center gap-1">{dist.talukCount}</p>
+                                                </div>
+                                                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/50">
+                                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Total Fleet</p>
+                                                    <p className="text-lg font-black text-emerald-400 flex items-center gap-1"><Bus className="w-4 h-4" /> {dist.fleet}</p>
+                                                </div>
                                             </div>
-                                            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/50">
-                                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Total Fleet</p>
-                                                <p className="text-lg font-black text-emerald-400 flex items-center gap-1"><Bus className="w-4 h-4" /> {dist.fleet}</p>
-                                            </div>
-                                        </div>
 
-                                        <div className="mt-4 pt-4 border-t border-slate-800 flex justify-between items-center text-xs">
-                                            <span className="text-slate-400">View Taluk Breakdown</span>
-                                            <span className="text-blue-400 font-bold flex items-center group-hover:translate-x-1 transition-transform">Explore <ArrowRight className="w-3 h-3 ml-1" /></span>
+                                            <div className="mt-4 pt-4 border-t border-slate-800 flex justify-between items-center text-xs">
+                                                <span className="text-slate-400">View Taluk Breakdown</span>
+                                                <span className="text-blue-400 font-bold flex items-center group-hover:translate-x-1 transition-transform">Explore <ArrowRight className="w-3 h-3 ml-1" /></span>
+                                            </div>
                                         </div>
-                                    </div>
+                                    </BorderDrawWrapper>
                                 ))}
                             </div>
                         </div>
@@ -443,57 +451,61 @@ const RegionalAdminDashboard = () => {
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {depots.map(d => (
-                                <div key={d.depot_id} onClick={() => setSelectedDepot(d)} className="bg-slate-900 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-6 shadow-xl cursor-pointer transition-all hover:bg-slate-800/80 group transform hover:-translate-y-1">
-                                    <div className="flex justify-between items-start mb-4">
+                                <BorderDrawWrapper key={d.depot_id} radius={18} strokeColor="#3b82f6" className="rounded-2xl h-full">
+                                    <div onClick={() => setSelectedDepot(d)} className="bg-slate-900 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-6 shadow-xl cursor-pointer transition-all hover:bg-slate-800/80 group transform hover:-translate-y-1 h-full flex flex-col justify-between">
                                         <div>
-                                            <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition">{d.name}</h3>
-                                            <span className="text-xs font-semibold bg-slate-800 px-2 py-1 rounded text-slate-300">{d.code}</span>
-                                        </div>
-                                        {/* Composite Health Score */}
-                                        <div className={`flex flex-col items-center justify-center w-12 h-12 rounded-full border-2 ${d.health_score > 80 ? 'border-emerald-500 text-emerald-400' : d.health_score > 70 ? 'border-amber-500 text-amber-400' : 'border-rose-500 text-rose-400'}`}>
-                                            <span className="text-sm font-black">{d.health_score}</span>
-                                        </div>
-                                    </div>
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div>
+                                                    <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition">{d.name}</h3>
+                                                    <span className="text-xs font-semibold bg-slate-800 px-2 py-1 rounded text-slate-300">{d.code}</span>
+                                                </div>
+                                                {/* Composite Health Score */}
+                                                <div className={`flex flex-col items-center justify-center w-12 h-12 rounded-full border-2 ${d.health_score > 80 ? 'border-emerald-500 text-emerald-400' : d.health_score > 70 ? 'border-amber-500 text-amber-400' : 'border-rose-500 text-rose-400'}`}>
+                                                    <span className="text-sm font-black">{d.health_score}</span>
+                                                </div>
+                                            </div>
 
-                                    <div className="grid grid-cols-2 gap-4 text-sm mb-4">
-                                        <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/50">
-                                            <p className="text-xs text-slate-500 font-semibold uppercase">Active Trips</p>
-                                            <p className="text-lg font-bold text-emerald-400 flex items-center gap-1"><Activity className="w-4 h-4" /> {d.active_trips}</p>
-                                        </div>
-                                        <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/50">
-                                            <p className="text-xs text-slate-500 font-semibold uppercase">Revenue</p>
-                                            <p className="text-lg font-bold text-white flex items-center gap-1">
-                                                ₹{(d.revenue_today / 1000).toFixed(1)}k
-                                                {d.revenue_trend === 'up' ? <TrendingUp className="w-4 h-4 text-emerald-500" /> : <TrendingDown className="w-4 h-4 text-rose-500" />}
-                                            </p>
-                                        </div>
-                                    </div>
+                                            <div className="grid grid-cols-2 gap-4 text-sm mb-4">
+                                                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/50">
+                                                    <p className="text-xs text-slate-500 font-semibold uppercase">Active Trips</p>
+                                                    <p className="text-lg font-bold text-emerald-400 flex items-center gap-1"><Activity className="w-4 h-4" /> {d.active_trips}</p>
+                                                </div>
+                                                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/50">
+                                                    <p className="text-xs text-slate-500 font-semibold uppercase">Revenue</p>
+                                                    <p className="text-lg font-bold text-white flex items-center gap-1">
+                                                        ₹{(d.revenue_today / 1000).toFixed(1)}k
+                                                        {d.revenue_trend === 'up' ? <TrendingUp className="w-4 h-4 text-emerald-500" /> : <TrendingDown className="w-4 h-4 text-rose-500" />}
+                                                    </p>
+                                                </div>
+                                            </div>
 
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between text-xs">
-                                            <span className="text-slate-400">Fleet Status (Live)</span>
-                                            <span className="text-slate-300 font-bold">{d.buses.active + d.buses.idle + d.buses.maint} Total</span>
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between text-xs">
+                                                    <span className="text-slate-400">Fleet Status (Live)</span>
+                                                    <span className="text-slate-300 font-bold">{d.buses.active + d.buses.idle + d.buses.maint} Total</span>
+                                                </div>
+                                                <div className="h-2 w-full bg-slate-800 rounded-full flex overflow-hidden">
+                                                    <div style={{ width: `${(d.buses.active / (d.buses.active + d.buses.idle + d.buses.maint)) * 100}%` }} className="bg-emerald-500"></div>
+                                                    <div style={{ width: `${(d.buses.idle / (d.buses.active + d.buses.idle + d.buses.maint)) * 100}%` }} className="bg-blue-500"></div>
+                                                    <div style={{ width: `${(d.buses.maint / (d.buses.active + d.buses.idle + d.buses.maint)) * 100}%` }} className="bg-rose-500"></div>
+                                                </div>
+                                                <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                                    <span className="text-emerald-500">{d.buses.active} Active</span>
+                                                    <span className="text-blue-500">{d.buses.idle} Idle</span>
+                                                    <span className="text-rose-500">{d.buses.maint} Maint</span>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="h-2 w-full bg-slate-800 rounded-full flex overflow-hidden">
-                                            <div style={{ width: `${(d.buses.active / (d.buses.active + d.buses.idle + d.buses.maint)) * 100}%` }} className="bg-emerald-500"></div>
-                                            <div style={{ width: `${(d.buses.idle / (d.buses.active + d.buses.idle + d.buses.maint)) * 100}%` }} className="bg-blue-500"></div>
-                                            <div style={{ width: `${(d.buses.maint / (d.buses.active + d.buses.idle + d.buses.maint)) * 100}%` }} className="bg-rose-500"></div>
-                                        </div>
-                                        <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                                            <span className="text-emerald-500">{d.buses.active} Active</span>
-                                            <span className="text-blue-500">{d.buses.idle} Idle</span>
-                                            <span className="text-rose-500">{d.buses.maint} Maint</span>
-                                        </div>
-                                    </div>
 
-                                    <div className="mt-4 pt-4 border-t border-slate-800 flex justify-between items-center text-xs">
-                                        <div className="flex items-center gap-1 text-slate-400">
-                                            <AlertTriangle className={`w-3 h-3 ${d.open_complaints > 5 ? 'text-rose-500' : 'text-amber-500'}`} />
-                                            <span>{d.open_complaints} Open Complaints</span>
+                                        <div className="mt-4 pt-4 border-t border-slate-800 flex justify-between items-center text-xs">
+                                            <div className="flex items-center gap-1 text-slate-400">
+                                                <AlertTriangle className={`w-3 h-3 ${d.open_complaints > 5 ? 'text-rose-500' : 'text-amber-500'}`} />
+                                                <span>{d.open_complaints} Open Complaints</span>
+                                            </div>
+                                            <span className="text-blue-400 font-semibold flex items-center">Drill-down <ArrowRight className="w-3 h-3 ml-1" /></span>
                                         </div>
-                                        <span className="text-blue-400 font-semibold flex items-center">Drill-down <ArrowRight className="w-3 h-3 ml-1" /></span>
                                     </div>
-                                </div>
+                                </BorderDrawWrapper>
                             ))}
                         </div>
                     </div>
@@ -537,56 +549,65 @@ const RegionalAdminDashboard = () => {
                             </div>
                         </div>
 
-                        {/* Summary Metrics Strip */}
+                        {/* Summary Metrics Strip with BorderDraw */}
                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-2xl flex items-center gap-4 shadow-lg">
-                                <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-                                    <MessageSquare className="w-6 h-6" />
+                            <BorderDrawWrapper radius={16} strokeColor="#3b82f6" className="rounded-2xl h-full">
+                                <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-2xl flex items-center gap-4 shadow-lg h-full">
+                                    <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                                        <MessageSquare className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Logged Tickets</p>
+                                        <p className="text-xl font-black text-white">{complaints.length} <span className="text-xs text-slate-400 font-normal">in district</span></p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Logged Tickets</p>
-                                    <p className="text-xl font-black text-white">{complaints.length} <span className="text-xs text-slate-400 font-normal">in district</span></p>
-                                </div>
-                            </div>
+                            </BorderDrawWrapper>
 
-                            <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-2xl flex items-center gap-4 shadow-lg">
-                                <div className="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
-                                    <AlertTriangle className="w-6 h-6" />
+                            <BorderDrawWrapper radius={16} strokeColor="#f43f5e" className="rounded-2xl h-full">
+                                <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-2xl flex items-center gap-4 shadow-lg h-full">
+                                    <div className="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                                        <AlertTriangle className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">SLA High Priority</p>
+                                        <p className="text-xl font-black text-rose-400">{highPriorityCount} <span className="text-xs text-slate-400 font-normal font-mono">Action req.</span></p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">SLA High Priority</p>
-                                    <p className="text-xl font-black text-rose-400">{highPriorityCount} <span className="text-xs text-slate-400 font-normal font-mono">Action req.</span></p>
-                                </div>
-                            </div>
+                            </BorderDrawWrapper>
 
-                            <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-2xl flex items-center gap-4 shadow-lg">
-                                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                                    <CheckCircle2 className="w-6 h-6" />
+                            <BorderDrawWrapper radius={16} strokeColor="#10b981" className="rounded-2xl h-full">
+                                <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-2xl flex items-center gap-4 shadow-lg h-full">
+                                    <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                                        <CheckCircle2 className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Resolution Rate</p>
+                                        <p className="text-xl font-black text-emerald-400">96.4% <span className="text-xs text-slate-400 font-normal">SLA target</span></p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Resolution Rate</p>
-                                    <p className="text-xl font-black text-emerald-400">96.4% <span className="text-xs text-slate-400 font-normal">SLA target</span></p>
-                                </div>
-                            </div>
+                            </BorderDrawWrapper>
 
-                            <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-2xl flex items-center gap-4 shadow-lg">
-                                <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                                    <Clock className="w-6 h-6" />
+                            <BorderDrawWrapper radius={16} strokeColor="#f59e0b" className="rounded-2xl h-full">
+                                <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-2xl flex items-center gap-4 shadow-lg h-full">
+                                    <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                                        <Clock className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Avg Resolution SLA</p>
+                                        <p className="text-xl font-black text-amber-400">1.8 hrs <span className="text-xs text-slate-400 font-normal">turnaround</span></p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Avg Resolution SLA</p>
-                                    <p className="text-xl font-black text-amber-400">1.8 hrs <span className="text-xs text-slate-400 font-normal">turnaround</span></p>
-                                </div>
-                            </div>
+                            </BorderDrawWrapper>
                         </div>
 
                         {/* Complaint Ticket Cards Grid */}
                         <div className="grid gap-4">
                             {filteredComplaints.length > 0 ? filteredComplaints.map((c, idx) => (
-                                <div key={c.complaint_id} className={`bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 rounded-2xl p-6 shadow-xl border-l-4 transition-all hover:translate-y-[-2px] hover:shadow-2xl ${c.severity === 'High' ? 'border-l-rose-500 border-t border-b border-r border-slate-800' :
-                                    c.status === 'Resolved' ? 'border-l-emerald-500 border-t border-b border-r border-slate-800' :
-                                        'border-l-amber-500 border-t border-b border-r border-slate-800'
-                                    }`}>
+                                <BorderDrawWrapper key={c.complaint_id} radius={18} strokeColor="#f59e0b" className="rounded-2xl w-full">
+                                    <div className={`bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 rounded-2xl p-6 shadow-xl border-l-4 transition-all w-full ${c.severity === 'High' ? 'border-l-rose-500 border-t border-b border-r border-slate-800' :
+                                        c.status === 'Resolved' ? 'border-l-emerald-500 border-t border-b border-r border-slate-800' :
+                                            'border-l-amber-500 border-t border-b border-r border-slate-800'
+                                        }`}>
                                     <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                                         <div className="space-y-3 flex-1">
                                             <div className="flex flex-wrap items-center gap-2">
@@ -698,7 +719,8 @@ const RegionalAdminDashboard = () => {
                                         </div>
                                     </div>
                                 </div>
-                            )) : (
+                            </BorderDrawWrapper>
+                        )) : (
                                 <div className="text-center p-12 bg-slate-900 border border-slate-800 rounded-3xl">
                                     <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3 opacity-80" />
                                     <h3 className="text-lg font-bold text-slate-300 mb-1">No complaints matching filter</h3>
@@ -738,46 +760,53 @@ const RegionalAdminDashboard = () => {
                             </div>
                         </div>
 
-                        {/* Emergency Metrics Summary */}
+                        {/* Emergency Metrics Summary with BorderDraw */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="bg-gradient-to-r from-rose-950/40 to-slate-900 border border-rose-500/30 p-5 rounded-2xl flex items-center justify-between shadow-xl">
-                                <div>
-                                    <p className="text-xs text-rose-400 uppercase font-black tracking-wider">Active Critical SOS</p>
-                                    <p className="text-3xl font-black text-white mt-1">{safeIncidents.length}</p>
-                                    <p className="text-[10px] text-slate-400 mt-1">Requiring immediate command response</p>
+                            <BorderDrawWrapper radius={16} strokeColor="#f43f5e" className="rounded-2xl h-full">
+                                <div className="bg-gradient-to-r from-rose-950/40 to-slate-900 border border-rose-500/30 p-5 rounded-2xl flex items-center justify-between shadow-xl h-full">
+                                    <div>
+                                        <p className="text-xs text-rose-400 uppercase font-black tracking-wider">Active Critical SOS</p>
+                                        <p className="text-3xl font-black text-white mt-1">{safeIncidents.length}</p>
+                                        <p className="text-[10px] text-slate-400 mt-1">Requiring immediate command response</p>
+                                    </div>
+                                    <div className="w-14 h-14 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+                                        <AlertTriangle className="w-7 h-7 animate-pulse" />
+                                    </div>
                                 </div>
-                                <div className="w-14 h-14 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
-                                    <AlertTriangle className="w-7 h-7 animate-pulse" />
-                                </div>
-                            </div>
+                            </BorderDrawWrapper>
 
-                            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between shadow-xl">
-                                <div>
-                                    <p className="text-xs text-blue-400 uppercase font-black tracking-wider">Dispatched Patrol Units</p>
-                                    <p className="text-3xl font-black text-white mt-1">{safeIncidents.filter(i => i?.status === 'Unit Dispatched').length}</p>
-                                    <p className="text-[10px] text-slate-400 mt-1">En route to incident location</p>
+                            <BorderDrawWrapper radius={16} strokeColor="#3b82f6" className="rounded-2xl h-full">
+                                <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between shadow-xl h-full">
+                                    <div>
+                                        <p className="text-xs text-blue-400 uppercase font-black tracking-wider">Dispatched Patrol Units</p>
+                                        <p className="text-3xl font-black text-white mt-1">{safeIncidents.filter(i => i?.status === 'Unit Dispatched').length}</p>
+                                        <p className="text-[10px] text-slate-400 mt-1">En route to incident location</p>
+                                    </div>
+                                    <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                                        <Activity className="w-7 h-7" />
+                                    </div>
                                 </div>
-                                <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-                                    <Activity className="w-7 h-7" />
-                                </div>
-                            </div>
+                            </BorderDrawWrapper>
 
-                            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between shadow-xl">
-                                <div>
-                                    <p className="text-xs text-emerald-400 uppercase font-black tracking-wider">Avg Response Time</p>
-                                    <p className="text-3xl font-black text-white mt-1">3.4 <span className="text-sm font-normal text-slate-400">mins</span></p>
-                                    <p className="text-[10px] text-slate-400 mt-1">State highway protocol benchmark</p>
+                            <BorderDrawWrapper radius={16} strokeColor="#10b981" className="rounded-2xl h-full">
+                                <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between shadow-xl h-full">
+                                    <div>
+                                        <p className="text-xs text-emerald-400 uppercase font-black tracking-wider">Avg Response Time</p>
+                                        <p className="text-3xl font-black text-white mt-1">3.4 <span className="text-sm font-normal text-slate-400">mins</span></p>
+                                        <p className="text-[10px] text-slate-400 mt-1">State highway protocol benchmark</p>
+                                    </div>
+                                    <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                                        <Clock className="w-7 h-7" />
+                                    </div>
                                 </div>
-                                <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                                    <Clock className="w-7 h-7" />
-                                </div>
-                            </div>
+                            </BorderDrawWrapper>
                         </div>
 
                         {/* Incident Cards */}
                         <div className="grid gap-5">
                             {safeIncidents.map((inc, idx) => (
-                                <div key={inc?.incident_id || idx} className="bg-gradient-to-r from-rose-950/30 via-slate-900 to-slate-950 rounded-3xl p-6 shadow-2xl border border-rose-500/40 relative overflow-hidden group hover:border-rose-500/80 transition-all">
+                                <BorderDrawWrapper key={inc?.incident_id || idx} radius={24} strokeColor="#f43f5e" className="rounded-3xl w-full">
+                                    <div className="bg-gradient-to-r from-rose-950/30 via-slate-900 to-slate-950 rounded-3xl p-6 shadow-2xl border border-rose-500/40 relative overflow-hidden group hover:border-rose-500/80 transition-all w-full">
                                     <div className="absolute top-0 right-0 w-64 h-64 bg-rose-500/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none group-hover:bg-rose-500/10 transition-colors"></div>
 
                                     <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative z-10">
@@ -847,7 +876,8 @@ const RegionalAdminDashboard = () => {
                                         </div>
                                     </div>
                                 </div>
-                            ))}
+                            </BorderDrawWrapper>
+                        ))}
 
                             {safeIncidents.length === 0 && (
                                 <div className="text-center p-14 bg-slate-900/60 border border-slate-800 rounded-3xl shadow-xl">
@@ -878,7 +908,7 @@ const RegionalAdminDashboard = () => {
                         </div>
 
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-950 rounded-2xl p-8 border border-slate-800 shadow-xl relative overflow-hidden">
+                            <GradientShiftCard colorTheme="emerald" radius={20} className="lg:col-span-2 p-8 shadow-xl">
                                 <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
                                 <div className="flex items-center gap-8 relative z-10">
                                     <div className="w-32 h-32 rounded-full border-4 border-emerald-500/20 flex items-center justify-center relative flex-shrink-0">
@@ -901,9 +931,9 @@ const RegionalAdminDashboard = () => {
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                            </GradientShiftCard>
 
-                            <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl flex flex-col justify-between">
+                            <GradientShiftCard colorTheme="sky" radius={20} className="p-6 shadow-xl flex flex-col justify-between">
                                 <div>
                                     <h3 className="text-white font-bold mb-6 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-blue-400" /> Taluk Revenue Distribution</h3>
                                     <div className="h-[220px] w-full">
@@ -921,7 +951,7 @@ const RegionalAdminDashboard = () => {
                                 <button className="w-full mt-4 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold py-2.5 rounded-lg transition border border-slate-700 flex items-center justify-center gap-2">
                                     <BarChart3 className="w-4 h-4" /> Extract Full Report
                                 </button>
-                            </div>
+                            </GradientShiftCard>
                         </div>
                     </div>
                 );
@@ -939,40 +969,62 @@ const RegionalAdminDashboard = () => {
 
     return (
         <div className="flex -mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100vh-64px)] bg-slate-950 relative pb-16 md:pb-0">
-            {/* Sidebar Navigation */}
-            <aside className="w-72 bg-slate-900 border-r border-slate-800 flex-shrink-0 flex flex-col pt-6 hidden md:flex sticky top-0 h-[calc(100vh-64px)] overflow-y-auto shadow-2xl z-40">
-                <div className="px-4 mb-6 relative z-10">
-                    <div className="bg-blue-600/10 border border-blue-500/20 p-4 rounded-xl flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-                            <UserCog className="w-5 h-5 text-white" />
-                        </div>
-                        <div>
-                            <h4 className="text-white font-bold text-sm">Regional Admin</h4>
-                            <p className="text-xs text-blue-400">Authenticated Scope</p>
-                        </div>
-                    </div>
-                </div>
+            {/* Animated Velora Sidebar Navigation */}
+            <div className="hidden md:flex sticky top-16 h-[calc(100vh-4.5rem)] max-h-[calc(100vh-4.5rem)] z-40 pb-2">
+                <Sidebar className="h-full">
+                    <SidebarBody
+                        logo={
+                            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-md shadow-blue-500/30">
+                                <UserCog className="w-4 h-4 text-white" />
+                            </div>
+                        }
+                        title="Regional Command"
+                        subtitle="Zone Authenticated Scope"
+                        footer={<SidebarLogoutButton onClick={logout} />}
+                    >
+                        <SidebarSection title="Operations">
+                            <SidebarLink
+                                icon={<Activity className="w-4 h-4" />}
+                                label="Live Map Overview"
+                                active={activeMenu === 'overview'}
+                                onClick={() => loadTabData('overview')}
+                            />
+                        </SidebarSection>
 
-                <div className="px-4 mb-4">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 pl-2">Operations</div>
-                    <SidebarItem icon={Activity} label="Live Map Overview" active={activeMenu === 'overview'} onClick={() => loadTabData('overview')} />
-                </div>
+                        <SidebarSection title="Depot Network">
+                            <SidebarLink
+                                icon={<Building className="w-4 h-4" />}
+                                label="Depots Overview (Grid)"
+                                active={activeMenu === 'depots'}
+                                onClick={() => loadTabData('depots')}
+                            />
+                            <SidebarLink
+                                icon={<TrendingUp className="w-4 h-4" />}
+                                label="Revenue & Analytics"
+                                active={activeMenu === 'revenue_insights'}
+                                onClick={() => loadTabData('revenue_insights')}
+                            />
+                        </SidebarSection>
 
-                <div className="px-4 mb-4">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 pl-2">Depot Network</div>
-                    <SidebarItem icon={Building} label="Depots Overview (Grid)" active={activeMenu === 'depots'} onClick={() => loadTabData('depots')} />
-                </div>
-
-                <div className="px-4 mb-4">
-                    <SidebarItem icon={TrendingUp} label="Revenue & Analytics" active={activeMenu === 'revenue_insights'} onClick={() => loadTabData('revenue_insights')} />
-                </div>
-
-                <div className="px-4 mb-4 mt-auto pb-4">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 pl-2">Safety & Feedback</div>
-                    <SidebarItem icon={MessageSquare} label="Passenger Feedback" active={activeMenu === 'complaints'} onClick={() => loadTabData('complaints')} />
-                    <SidebarItem icon={ShieldAlert} label="Emergency Incidents" active={activeMenu === 'incidents'} onClick={() => loadTabData('incidents')} badge={incidents.length > 0 ? incidents.length : null} />
-                </div>
-            </aside>
+                        <SidebarSection title="Safety & Feedback">
+                            <SidebarLink
+                                icon={<MessageSquare className="w-4 h-4" />}
+                                label="Passenger Feedback"
+                                active={activeMenu === 'complaints'}
+                                onClick={() => loadTabData('complaints')}
+                            />
+                            <SidebarLink
+                                icon={<ShieldAlert className="w-4 h-4" />}
+                                label="Emergency Incidents"
+                                active={activeMenu === 'incidents'}
+                                badge={incidents.length > 0 ? incidents.length : null}
+                                badgeColor="bg-rose-500/20 text-rose-300 border-rose-500/30"
+                                onClick={() => loadTabData('incidents')}
+                            />
+                        </SidebarSection>
+                    </SidebarBody>
+                </Sidebar>
+            </div>
 
             {/* Mobile Nav Bar */}
             <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 flex justify-around items-center h-16 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
@@ -1311,16 +1363,24 @@ const DepotDrillDown = ({ depot, onBack }) => {
     );
 };
 
-// Reusable Metric Component
-const MetricCard = ({ title, value, trend, icon: Icon, color }) => (
-    <div className={`bg-slate-900 border ${color} rounded-xl p-5 shadow-lg relative overflow-hidden transition-all hover:bg-slate-800/80 cursor-default group`}>
-        <Icon className={`w-10 h-10 absolute -right-2 -bottom-2 opacity-10 group-hover:scale-110 transition-transform duration-300`} />
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</span>
-        <div className="flex items-end gap-2 mt-2">
-            <span className="text-3xl font-black text-white">{value}</span>
-            {trend && <span className={`text-[10px] uppercase font-bold ${trend === 'Requires Action' ? 'text-rose-400 bg-rose-500/20' : 'text-emerald-400 bg-emerald-500/20'} px-2 py-0.5 rounded-full mb-1`}>{trend}</span>}
-        </div>
-    </div>
-);
+// Reusable Metric Component with Gradient Shift & Click Sheen Sweep
+const MetricCard = ({ title, value, trend, icon: Icon, color }) => {
+    let colorTheme = 'sky';
+    if (color.includes('emerald')) colorTheme = 'emerald';
+    else if (color.includes('rose')) colorTheme = 'rose';
+    else if (color.includes('blue')) colorTheme = 'sky';
+    else if (color.includes('amber')) colorTheme = 'amber';
+
+    return (
+        <GradientShiftCard colorTheme={colorTheme} radius={18} className="p-5 shadow-lg w-full">
+            <Icon className={`w-10 h-10 absolute -right-2 -bottom-2 opacity-10 group-hover:scale-110 transition-transform duration-300 pointer-events-none`} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</span>
+            <div className="flex items-end gap-2 mt-2">
+                <span className="text-3xl font-black text-white">{value}</span>
+                {trend && <span className={`text-[10px] uppercase font-bold ${trend === 'Requires Action' ? 'text-rose-400 bg-rose-500/20' : 'text-emerald-400 bg-emerald-500/20'} px-2 py-0.5 rounded-full mb-1`}>{trend}</span>}
+            </div>
+        </GradientShiftCard>
+    );
+};
 
 export default RegionalAdminDashboard;
